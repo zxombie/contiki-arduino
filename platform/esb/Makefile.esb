@@ -1,0 +1,77 @@
+# $Id: Makefile.esb,v 1.12 2008/09/29 12:38:18 joxe Exp $
+
+SENSORS    = sensors.c irq.c button-sensor.c pir-sensor.c vib-sensor.c \
+             sound-sensor.c radio-sensor.c ctsrts-sensor.c battery-sensor.c \
+             temperature-sensor.c
+ESB        = ir.c beep.c ds1629.c tr1001-uip.c tr1001-gcr.c gcr.c \
+             esb-sensors.c node-id.c eeprom.c
+CFS_EEPROM = cfs-eeprom.c
+CFS_COFFEE = cfs-coffee.c cfs-coffee-arch.c
+
+CONTIKI_TARGET_DIRS = . dev apps net loader
+ifndef CONTIKI_TARGET_MAIN
+CONTIKI_TARGET_MAIN = contiki-esb-main.c
+endif
+
+CONTIKI_TARGET_SOURCEFILES += $(SENSORS) $(ESB) \
+        contiki-esb-default-init-lowlevel.c \
+        contiki-esb-default-init-apps.c \
+	rs232.c rs232-putchar.c fader.c $(CONTIKI_TARGET_MAIN)
+ifeq ($(NETSTACK),uip)
+CONTIKI_TARGET_SOURCEFILES += contiki-esb-init-net-uip.c
+else
+ifeq ($(NETSTACK),uip-noslip)
+CONTIKI_TARGET_SOURCEFILES += contiki-esb-init-net-uip-noslip.c
+else
+CONTIKI_TARGET_SOURCEFILES += contiki-esb-default-init-net.c
+endif
+endif
+
+ifeq ($(CFS),coffee)
+CONTIKI_TARGET_SOURCEFILES += $(CFS_COFFEE)
+else
+CONTIKI_TARGET_SOURCEFILES +=  $(CFS_EEPROM)
+endif
+
+include $(CONTIKI)/platform/$(TARGET)/apps/Makefile.apps
+
+#PROJECT_OBJECTFILES += $(OBJECTDIR)/contiki-esb-main.o
+
+MCU=msp430x149
+include $(CONTIKI)/cpu/msp430/Makefile.msp430
+
+contiki-$(TARGET).a: ${addprefix $(OBJECTDIR)/,symbols.o}
+#	$(AR) rcf $@ $^
+
+ifndef BASE_IP
+BASE_IP := 172.16.1.1
+endif
+
+send:	$(CONTIKI)/tools/codeprop.c
+	cc -Wall $^ -o send
+
+%.send:	%.cm send
+	send $(BASE_IP) $<
+
+### System dependent Makefile
+
+ifndef WINDIR
+  ifdef OS
+    ifneq (,$(findstring Windows,$(OS)))
+      WINDIR := Windows
+    endif
+  endif
+endif
+
+ifeq (${HOSTTYPE},FreeBSD)
+  # settings for FreeBSD
+  -include $(CONTIKI)/platform/$(TARGET)/buildscripts/Makefile.freebsd
+else
+ifndef WINDIR
+  # settings for unix
+  -include $(CONTIKI)/platform/$(TARGET)/buildscripts/Makefile.unix
+else
+  # settings for windows
+  -include $(CONTIKI)/platform/$(TARGET)/buildscripts/Makefile.win
+endif
+endif

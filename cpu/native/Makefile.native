@@ -1,0 +1,32 @@
+CONTIKI_CPU_DIRS = . net
+
+CONTIKI_SOURCEFILES += mtarch.c rtimer-arch.c elfloader-stub.c watchdog.c
+
+### Compiler definitions
+CC       = gcc
+LD       = gcc
+AS       = as
+NM       = nm
+OBJCOPY  = objcopy
+STRIP    = strip
+ifdef WERROR
+CFLAGSWERROR=-Werror -pedantic -std=c99 -Werror
+endif
+CFLAGSNO = -Wall -g -I/usr/local/include $(CFLAGSWERROR)
+CFLAGS  += $(CFLAGSNO) -O
+LDFLAGS  = -Wl,-Map=contiki-$(TARGET).map,-export-dynamic
+
+### Compilation rules
+
+%.so: $(OBJECTDIR)/%.o
+	$(LD) -shared -o $@ $^
+
+ifdef CORE
+.PHONY: symbols.c symbols.h
+symbols.c symbols.h:
+	$(NM) -C $(CORE) | grep -v @ | grep -v dll_crt0 | awk -f ../../tools/mknmlist > symbols.c
+#	@${CONTIKI}/tools/make-symbols $(CORE)
+else
+symbols.c symbols.h:
+	@${CONTIKI}/tools/make-empty-symbols
+endif

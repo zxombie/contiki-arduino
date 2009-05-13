@@ -1,0 +1,109 @@
+# $Id: Makefile.cooja,v 1.31 2009/03/20 13:23:44 fros4943 Exp $
+
+## The COOJA Simulator Contiki platform Makefile
+##
+## This makefile should normally never be called directly, but
+## rather from inside the COOJA simulator.
+## The purpose of this file is to compile a shared library that
+## can be loaded into the Java part of COOJA.
+
+ifndef CONTIKI
+  $(error CONTIKI not defined!)
+endif
+
+ifndef WINDIR
+  ifdef OS
+    ifneq (,$(findstring Windows,$(OS)))
+      WINDIR := Windows
+    endif
+  endif
+endif
+
+### Assuming simulator quickstart if no JNI library name set from Cooja
+ifndef LIBNAME
+QUICKSTART=1
+endif
+
+### Quickstart simulator
+ifdef QUICKSTART
+
+# Create COOJA JAR rule
+$(CONTIKI)/tools/cooja/dist/cooja.jar:
+	@echo "Creating COOJA Java archive..."
+	(cd $(CONTIKI)/tools/cooja && ant jar)
+
+# Quickstart rule
+.PHONY: $(MAKECMDGOALS)
+.PRECIOUS: $(MAKECMDGOALS)
+$(MAKECMDGOALS): $(CONTIKI)/tools/cooja/dist/cooja.jar
+	(cd $(CONTIKI)/tools/cooja/build && \
+	 java -mx512m -jar ../dist/cooja.jar -quickstart='$(abspath $(firstword $(MAKECMDGOALS)))')
+
+endif ## QUICKSTART
+
+#MAIN_SRC = obj_cooja/$(LIBNAME).c
+MAIN_OBJ = obj_cooja/$(LIBNAME).o
+ARCHIVE = obj_cooja/$(LIBNAME).a
+JNILIB = obj_cooja/$(LIBNAME).cooja
+CONTIKI_APP_OBJ = $(CONTIKI_APP).co
+
+### COOJA platform sources
+COOJA = $(CONTIKI)/platform/$(TARGET)
+CONTIKI_TARGET_DIRS = . dev lib sys cfs net
+
+COOJA_BASE	= simEnvChange.c irq.c cooja_mt.c cooja_mtarch.c
+
+COOJA_INTFS	= beep.c button-sensor.c ip.c leds-arch.c moteid.c \
+		    pir-sensor.c rs232.c vib-sensor.c \
+		    clock.c log.c radio-sensor.c cfs-cooja.c
+
+COOJA_CORE = random.c sensors.c leds.c symbols.c
+
+# (COOJA_SOURCEFILES contains additional sources set from simulator)
+CONTIKI_TARGET_SOURCEFILES = \
+$(COOJA_BASE) $(COOJA_INTFS) $(COOJA_CORE) $(COOJA_SOURCEFILES)
+
+CONTIKI_SOURCEFILES += $(CONTIKI_TARGET_SOURCEFILES)
+
+.SUFFIXES:
+
+### Define the CPU directory
+CONTIKI_CPU=$(CONTIKI)/cpu/x86
+
+### Compiler arguments
+CC = gcc
+CFLAGSNO = $(EXTRA_CC_ARGS) -Wall -g -I/usr/local/include
+CFLAGS   = $(CFLAGSNO)
+
+REDEF_PRINTF=1 # Redefine functions to enable printf()s inside Cooja
+
+### Define custom targets
+$(ARCHIVE): ${addprefix obj_cooja/, $(CONTIKI_SOURCEFILES:.c=.o)}
+	$(AR_COMMAND_1) $^ $(AR_COMMAND_2)
+
+$(JNILIB): $(CONTIKI_APP_OBJ) $(MAIN_OBJ) $(PROJECT_OBJECTFILES) $(ARCHIVE)
+ifdef SYMBOLS
+	@echo Generating symbols
+	# Recreate symbols file and relink with final memory layout (twice)
+	${CONTIKI}/tools/make-symbols-nm $(JNILIB)
+	$(CC) $(CFLAGS) -c symbols.c -o obj_cooja/symbols.o
+	$(LINK_COMMAND_1) $^ $(LINK_COMMAND_2)
+	${CONTIKI}/tools/make-symbols-nm $(JNILIB)
+	$(CC) $(CFLAGS) -c symbols.c -o obj_cooja/symbols.o
+endif ## SYMBOLS
+ifdef REDEF_PRINTF
+	@echo Redefining printf
+	-$(foreach OBJ,$^, objcopy --redefine-sym printf=log_printf $(OBJ); )		
+	-$(foreach OBJ,$^, objcopy --redefine-sym puts=log_puts $(OBJ); )		
+	-$(foreach OBJ,$^, objcopy --redefine-sym putchar=log_putchar $(OBJ); )		
+endif ## REDEF_PRINTF
+	$(LINK_COMMAND_1) $^ $(LINK_COMMAND_2)
+
+.PHONY: $(CONTIKI_APP).cooja
+$(CONTIKI_APP).cooja: $(JNILIB)
+	cp $(JNILIB) $@
+	rm $(CONTIKI_APP_OBJ)
+
+symbols.c:
+	# Create initial symbol files if not existing
+	${CONTIKI}/tools/make-empty-symbols

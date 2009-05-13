@@ -1,0 +1,3792 @@
+/*
+ * Copyright (c) 2006, Swedish Institute of Computer Science. All rights
+ * reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ * 1. Redistributions of source code must retain the above copyright notice,
+ * this list of conditions and the following disclaimer. 2. Redistributions in
+ * binary form must reproduce the above copyright notice, this list of
+ * conditions and the following disclaimer in the documentation and/or other
+ * materials provided with the distribution. 3. Neither the name of the
+ * Institute nor the names of its contributors may be used to endorse or promote
+ * products derived from this software without specific prior written
+ * permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * $Id: GUI.java,v 1.123 2009/03/24 15:47:10 fros4943 Exp $
+ */
+
+package se.sics.cooja;
+
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.Dialog;
+import java.awt.Dimension;
+import java.awt.Frame;
+import java.awt.GraphicsDevice;
+import java.awt.GraphicsEnvironment;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Window;
+import java.awt.Dialog.ModalityType;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowEvent;
+import java.awt.event.WindowListener;
+import java.beans.PropertyVetoException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.PrintStream;
+import java.io.StringReader;
+import java.lang.reflect.InvocationTargetException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.security.AccessControlException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Observable;
+import java.util.Observer;
+import java.util.Properties;
+import java.util.Vector;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.swing.AbstractAction;
+import javax.swing.Action;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.InputMap;
+import javax.swing.JApplet;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JDesktopPane;
+import javax.swing.JDialog;
+import javax.swing.JFileChooser;
+import javax.swing.JFrame;
+import javax.swing.JInternalFrame;
+import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JProgressBar;
+import javax.swing.JScrollPane;
+import javax.swing.JSeparator;
+import javax.swing.JTabbedPane;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+import javax.swing.event.MenuEvent;
+import javax.swing.event.MenuListener;
+import javax.swing.filechooser.FileFilter;
+
+import org.apache.log4j.BasicConfigurator;
+import org.apache.log4j.Logger;
+import org.apache.log4j.xml.DOMConfigurator;
+import org.jdom.Document;
+import org.jdom.Element;
+import org.jdom.JDOMException;
+import org.jdom.input.SAXBuilder;
+import org.jdom.output.Format;
+import org.jdom.output.XMLOutputter;
+
+import se.sics.cooja.MoteType.MoteTypeCreationException;
+import se.sics.cooja.VisPlugin.PluginRequiresVisualizationException;
+import se.sics.cooja.contikimote.ContikiMoteType;
+import se.sics.cooja.dialogs.AddMoteDialog;
+import se.sics.cooja.dialogs.ConfigurationWizard;
+import se.sics.cooja.dialogs.CreateSimDialog;
+import se.sics.cooja.dialogs.ExternalToolsDialog;
+import se.sics.cooja.dialogs.MessageList;
+import se.sics.cooja.dialogs.ProjectDirectoriesDialog;
+import se.sics.cooja.plugins.MoteTypeInformation;
+import se.sics.cooja.plugins.ScriptRunner;
+import se.sics.cooja.plugins.SimControl;
+import se.sics.cooja.plugins.SimInformation;
+
+/**
+ * Main file of COOJA Simulator. Typically contains a visualizer for the
+ * simulator, but can also be started without visualizer.
+ *
+ * This class loads external Java classes (in project directories), and handles the
+ * COOJA plugins as well as the configuration system. If provides a number of
+ * help methods for the rest of the COOJA system, and is the starting point for
+ * loading and saving simulation configs.
+ *
+ * @author Fredrik Osterlind
+ */
+public class GUI extends Observable {
+
+  /**
+   * External tools default Win32 settings filename.
+   */
+  public static final String EXTERNAL_TOOLS_WIN32_SETTINGS_FILENAME = "/external_tools_win32.config";
+
+  /**
+   * External tools default Mac OS X settings filename.
+   */
+  public static final String EXTERNAL_TOOLS_MACOSX_SETTINGS_FILENAME = "/external_tools_macosx.config";
+
+  /**
+   * External tools default Linux/Unix settings filename.
+   */
+  public static final String EXTERNAL_TOOLS_LINUX_SETTINGS_FILENAME = "/external_tools_linux.config";
+
+  /**
+   * External tools default Linux/Unix settings filename for 64 bit architectures.
+   * EXPERIMENTAL. Tested on Intel 64-bit Gentoo Linux.
+   */
+  public static final String EXTERNAL_TOOLS_LINUX_64_SETTINGS_FILENAME = "/external_tools_linux_64.config";
+
+  /**
+   * External tools user settings filename.
+   */
+  public static final String EXTERNAL_TOOLS_USER_SETTINGS_FILENAME = ".cooja.user.properties";
+  public static File externalToolsUserSettingsFile;
+  private static boolean externalToolsUserSettingsFileReadOnly = false;
+
+  private static String specifiedContikiPath = null;
+
+  /**
+   * Logger settings filename.
+   */
+  public static final String LOG_CONFIG_FILE = "log4j_config.xml";
+
+  /**
+   * Default project configuration filename.
+   */
+  public static String PROJECT_DEFAULT_CONFIG_FILENAME = null;
+
+  /**
+   * User project configuration filename.
+   */
+  public static final String PROJECT_CONFIG_FILENAME = "cooja.config";
+
+  /**
+   * File filter only showing saved simulations files (*.csc).
+   */
+  public static final FileFilter SAVED_SIMULATIONS_FILES = new FileFilter() {
+    public boolean accept(File file) {
+      if (file.isDirectory()) {
+        return true;
+      }
+
+      if (file.getName().endsWith(".csc")) {
+        return true;
+      }
+
+      return false;
+    }
+
+    public String getDescription() {
+      return "COOJA Configuration files";
+    }
+
+    public String toString() {
+      return ".csc";
+    }
+  };
+
+  private static JFrame frame = null;
+
+  private static JApplet applet = null;
+
+  private static final long serialVersionUID = 1L;
+
+  private static Logger logger = Logger.getLogger(GUI.class);
+
+  // External tools setting names
+  private static Properties defaultExternalToolsSettings;
+  private static Properties currentExternalToolsSettings;
+
+  private static final String externalToolsSettingNames[] = new String[] {
+      "PATH_CONTIKI", "PATH_COOJA_CORE_RELATIVE",
+
+      "PATH_MAKE",
+      "PATH_SHELL",
+      "PATH_C_COMPILER", "COMPILER_ARGS",
+      "PATH_LINKER", "LINK_COMMAND_1", "LINK_COMMAND_2",
+      "PATH_AR", "AR_COMMAND_1", "AR_COMMAND_2",
+      "PATH_OBJDUMP", "OBJDUMP_ARGS",
+      "PATH_JAVAC",
+
+      "CONTIKI_STANDARD_PROCESSES",
+      "CONTIKI_MAIN_TEMPLATE_FILENAME",
+
+      "CMD_GREP_PROCESSES", "REGEXP_PARSE_PROCESSES",
+      "CMD_GREP_INTERFACES", "REGEXP_PARSE_INTERFACES",
+      "CMD_GREP_SENSORS", "REGEXP_PARSE_SENSORS",
+
+      "DEFAULT_PROJECTDIRS",
+      "CORECOMM_TEMPLATE_FILENAME",
+
+      "MAPFILE_DATA_START", "MAPFILE_DATA_SIZE",
+      "MAPFILE_BSS_START", "MAPFILE_BSS_SIZE",
+      "MAPFILE_VAR_NAME",
+      "MAPFILE_VAR_ADDRESS_1", "MAPFILE_VAR_ADDRESS_2",
+      "MAPFILE_VAR_SIZE_1", "MAPFILE_VAR_SIZE_2",
+
+      "PARSE_WITH_COMMAND",
+      "PARSE_COMMAND",
+      "COMMAND_VAR_NAME_ADDRESS",
+      "COMMAND_DATA_START", "COMMAND_DATA_END",
+      "COMMAND_BSS_START", "COMMAND_BSS_END",
+  };
+
+  private static final int FRAME_NEW_OFFSET = 30;
+
+  private static final int FRAME_STANDARD_WIDTH = 150;
+
+  private static final int FRAME_STANDARD_HEIGHT = 300;
+
+  private GUI myGUI;
+
+  private Simulation mySimulation;
+
+  protected GUIEventHandler guiEventHandler = new GUIEventHandler();
+
+  private JMenu menuPlugins, menuMoteTypeClasses, menuMoteTypes;
+
+  private JMenu menuOpenSimulation, menuConfOpenSimulation;
+
+  private Vector<Class<? extends Plugin>> menuMotePluginClasses;
+
+  private JDesktopPane myDesktopPane;
+
+  private Vector<Plugin> startedPlugins = new Vector<Plugin>();
+
+  // Platform configuration variables
+  // Maintained via method reparseProjectConfig()
+  private ProjectConfig projectConfig;
+
+  private Vector<File> currentProjectDirs = new Vector<File>();
+
+  private ClassLoader projectDirClassLoader;
+
+  private Vector<Class<? extends MoteType>> moteTypeClasses = new Vector<Class<? extends MoteType>>();
+
+  private Vector<Class<? extends Plugin>> pluginClasses = new Vector<Class<? extends Plugin>>();
+
+  private Vector<Class<? extends Plugin>> pluginClassesTemporary = new Vector<Class<? extends Plugin>>();
+
+  private Vector<Class<? extends RadioMedium>> radioMediumClasses = new Vector<Class<? extends RadioMedium>>();
+
+  private Vector<Class<? extends IPDistributor>> ipDistributorClasses = new Vector<Class<? extends IPDistributor>>();
+
+  private Vector<Class<? extends Positioner>> positionerClasses = new Vector<Class<? extends Positioner>>();
+
+  private class HighlightObservable extends Observable {
+    private void setChangedAndNotify(Mote mote) {
+      setChanged();
+      notifyObservers(mote);
+    }
+  }
+  private HighlightObservable moteHighlightObservable = new HighlightObservable();
+
+  private class MoteRelationsObservable extends Observable {
+    private void setChangedAndNotify() {
+      setChanged();
+      notifyObservers();
+    }
+  }
+  private MoteRelationsObservable moteRelationObservable = new MoteRelationsObservable();
+
+  /**
+   * Mote relation (directed).
+   */
+  public static class MoteRelation {
+    public Mote source;
+    public Mote dest;
+    public MoteRelation(Mote source, Mote dest) {
+      this.source = source;
+      this.dest = dest;
+    }
+  }
+  private ArrayList<MoteRelation> moteRelations = new ArrayList<MoteRelation>();
+
+  /**
+   * Creates a new COOJA Simulator GUI.
+   *
+   * @param desktop Desktop pane
+   */
+  public GUI(JDesktopPane desktop) {
+    myGUI = this;
+    mySimulation = null;
+    myDesktopPane = desktop;
+    if (menuPlugins == null) {
+      menuPlugins = new JMenu("Plugins");
+      menuPlugins.removeAll();
+
+      /* COOJA/GUI plugins at top, simulation plugins in middle, mote plugins at bottom */
+      menuPlugins.addSeparator();
+      menuPlugins.addSeparator();
+    }
+    if (menuMotePluginClasses == null) {
+      menuMotePluginClasses = new Vector<Class<? extends Plugin>>();
+    }
+
+    // Load default and overwrite with user settings (if any)
+    loadExternalToolsDefaultSettings();
+    loadExternalToolsUserSettings();
+    if (specifiedContikiPath != null) {
+      setExternalToolsSetting("PATH_CONTIKI", specifiedContikiPath);
+    }
+
+    /* Debugging - Break on repaints outside EDT */
+    /*RepaintManager.setCurrentManager(new RepaintManager() {
+      public void addDirtyRegion(JComponent comp, int a, int b, int c, int d) {
+        if(!java.awt.EventQueue.isDispatchThread()) {
+          throw new RuntimeException("Repainting outside EDT");
+        }
+        super.addDirtyRegion(comp, a, b, c, d);
+      }
+    });*/
+
+    // Register default project directories
+    String defaultProjectDirs = getExternalToolsSetting(
+        "DEFAULT_PROJECTDIRS", null);
+    if (defaultProjectDirs != null) {
+      if (!isVisualizedInApplet()) {
+        String[] defaultProjectDirsArr = defaultProjectDirs.split(";");
+        if (defaultProjectDirsArr.length > 0) {
+          for (String defaultProjectDir : defaultProjectDirsArr) {
+            File projectDir = new File(defaultProjectDir);
+            if (projectDir.exists() && projectDir.isDirectory()) {
+              currentProjectDirs.add(projectDir);
+            }
+          }
+        }
+      }
+
+      // Load extendable parts (using current project config)
+      try {
+        reparseProjectConfig();
+      } catch (ParseProjectsException e) {
+        logger.fatal("Error when loading projects: " + e.getMessage());
+        if (isVisualized()) {
+          JOptionPane.showMessageDialog(GUI.getTopParentContainer(),
+              "Default projects could not load, try to reconfigure project directories:" +
+              "\n\tMenu->Settings->Manage project directories" +
+              "\n\nSee console for stack trace with more information.",
+              "Project loading error", JOptionPane.ERROR_MESSAGE);
+        } else {
+          logger.fatal("Loading project directories failed");
+          logger.fatal("Stack trace:");
+        }
+        e.printStackTrace();
+      }
+    }
+
+    // Start all standard GUI plugins
+    for (Class<? extends Plugin> pluginClass : pluginClasses) {
+      int pluginType = pluginClass.getAnnotation(PluginType.class).value();
+      if (pluginType == PluginType.COOJA_STANDARD_PLUGIN) {
+        startPlugin(pluginClass, this, null, null);
+      }
+    }
+  }
+
+
+  /**
+   * Add mote highlight observer.
+   *
+   * @see #deleteMoteHighlightObserver(Observer)
+   * @param newObserver
+   *          New observer
+   */
+  public void addMoteHighlightObserver(Observer newObserver) {
+    moteHighlightObservable.addObserver(newObserver);
+  }
+
+  /**
+   * Delete an mote highlight observer.
+   *
+   * @see #addMoteHighlightObserver(Observer)
+   * @param observer
+   *          Observer to delete
+   */
+  public void deleteMoteHighlightObserver(Observer observer) {
+    moteHighlightObservable.deleteObserver(observer);
+  }
+
+  /**
+   * @return True if simulator is visualized
+   */
+  public static boolean isVisualized() {
+    return isVisualizedInFrame() || isVisualizedInApplet();
+  }
+
+  public static Container getTopParentContainer() {
+    if (isVisualizedInFrame()) {
+      return frame;
+    }
+
+    if (isVisualizedInApplet()) {
+      /* Find parent frame for applet */
+      Container container = applet;
+      while((container = container.getParent()) != null){
+        if (container instanceof Frame) {
+          return container;
+        }
+        if (container instanceof Dialog) {
+          return container;
+        }
+        if (container instanceof Window) {
+          return container;
+        }
+      }
+
+      logger.fatal("Returning null top owner container");
+    }
+
+    return null;
+  }
+
+  public static boolean isVisualizedInFrame() {
+    return frame != null;
+  }
+
+  public static URL getAppletCodeBase() {
+    return applet.getCodeBase();
+  }
+
+  public static boolean isVisualizedInApplet() {
+    return applet != null;
+  }
+
+  /**
+   * Tries to create/remove simulator visualizer.
+   *
+   * @param visualized Visualized
+   */
+  public void setVisualizedInFrame(boolean visualized) {
+    if (visualized) {
+      if (!isVisualizedInFrame()) {
+        configureFrame(myGUI, false);
+      }
+    } else {
+      if (frame != null) {
+        frame.setVisible(false);
+        frame.dispose();
+        frame = null;
+      }
+    }
+  }
+
+  public Vector<File> getFileHistory() {
+    Vector<File> history = new Vector<File>();
+
+    // Fetch current history
+    String[] historyArray = getExternalToolsSetting("SIMCFG_HISTORY", "").split(";");
+
+    for (String file: historyArray) {
+      history.add(new File(file));
+    }
+
+    return history;
+  }
+
+  public void addToFileHistory(File file) {
+    // Fetch current history
+    String[] history = getExternalToolsSetting("SIMCFG_HISTORY", "").split(";");
+    String newFile = file.getAbsolutePath();
+    if (history.length > 0 && history[0].equals(newFile)) {
+      // File already added
+      return;
+    }
+    // Create new history
+    StringBuilder newHistory = new StringBuilder();
+    newHistory.append(newFile);
+    for (int i = 0, count = 1; i < history.length && count < 10; i++) {
+      String historyFile = history[i];
+      if (newFile.equals(historyFile) || historyFile.length() == 0) {
+        // File already added or empty file name
+      } else {
+        newHistory.append(';').append(historyFile);
+        count++;
+      }
+    }
+    setExternalToolsSetting("SIMCFG_HISTORY", newHistory.toString());
+    saveExternalToolsUserSettings();
+  }
+
+  private void updateOpenHistoryMenuItems() {
+    menuConfOpenSimulation.removeAll();
+
+    if (isVisualizedInApplet()) {
+      return;
+    }
+
+    JMenuItem browseItem = new JMenuItem("Browse...");
+    browseItem.setActionCommand("confopen sim");
+    browseItem.addActionListener(guiEventHandler);
+    menuConfOpenSimulation.add(browseItem);
+    menuConfOpenSimulation.add(new JSeparator());
+    Vector<File> openFilesHistory = getFileHistory();
+
+    for (File file: openFilesHistory) {
+      JMenuItem lastItem = new JMenuItem(file.getName());
+      lastItem.setActionCommand("confopen last sim");
+      lastItem.putClientProperty("file", file);
+      lastItem.setToolTipText(file.getAbsolutePath());
+      lastItem.addActionListener(guiEventHandler);
+      menuConfOpenSimulation.add(lastItem);
+    }
+
+    menuOpenSimulation.removeAll();
+
+    browseItem = new JMenuItem("Browse...");
+    browseItem.setActionCommand("open sim");
+    browseItem.addActionListener(guiEventHandler);
+    menuOpenSimulation.add(browseItem);
+    menuOpenSimulation.add(new JSeparator());
+
+    for (File file: openFilesHistory) {
+      JMenuItem lastItem = new JMenuItem(file.getName());
+      lastItem.setActionCommand("open last sim");
+      lastItem.putClientProperty("file", file);
+      lastItem.setToolTipText(file.getAbsolutePath());
+      lastItem.addActionListener(guiEventHandler);
+      menuOpenSimulation.add(lastItem);
+    }
+  }
+
+  private JMenuBar createMenuBar() {
+    JMenuBar menuBar = new JMenuBar();
+    JMenu menu;
+    JMenuItem menuItem;
+
+    // File menu
+    menu = new JMenu("File");
+    menu.addMenuListener(new MenuListener() {
+      public void menuSelected(MenuEvent e) {
+        updateOpenHistoryMenuItems();
+      }
+      public void menuDeselected(MenuEvent e) {
+      }
+
+      public void menuCanceled(MenuEvent e) {
+      }
+    });
+    menu.setMnemonic(KeyEvent.VK_F);
+    menuBar.add(menu);
+
+    menuItem = new JMenuItem("New simulation");
+    menuItem.setMnemonic(KeyEvent.VK_N);
+    menuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N,
+        ActionEvent.CTRL_MASK));
+    menuItem.setActionCommand("new sim");
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+
+    menuItem = new JMenu("Reload simulation");
+    menu.add(menuItem);
+
+    JMenuItem menuItem2 = new JMenuItem("same random seed");
+    menuItem2.setMnemonic(KeyEvent.VK_R);
+    menuItem2.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R,
+        ActionEvent.CTRL_MASK));
+    menuItem2.addActionListener(new ActionListener() {
+      public void actionPerformed(ActionEvent e) {
+        if (getSimulation() == null) {
+          return;
+        }
+        reloadCurrentSimulation(
+            getSimulation().isRunning(),
+            getSimulation().getRandomSeed());
+      }
+    });
+    menuItem.add(menuItem2);
+
+    menuItem2 = new JMenuItem("new random seed");
+    menuItem2.setMnemonic(KeyEvent.VK_R);
+    menuItem2.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R,
+        ActionEvent.CTRL_MASK | ActionEvent.SHIFT_MASK));
+    menuItem2.addActionListener(new ActionListener() {
+      public void actionPerformed(ActionEvent e) {
+        if (getSimulation() == null) {
+          return;
+        }
+        reloadCurrentSimulation(
+            getSimulation().isRunning(),
+            getSimulation().getRandomSeed()+1);
+      }
+    });
+    menuItem.add(menuItem2);
+
+    menuItem = new JMenuItem("Close simulation");
+    menuItem.setMnemonic(KeyEvent.VK_C);
+    menuItem.setActionCommand("close sim");
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+
+    menuOpenSimulation = new JMenu("Open simulation");
+    menuOpenSimulation.setMnemonic(KeyEvent.VK_O);
+    menu.add(menuOpenSimulation);
+    if (isVisualizedInApplet()) {
+      menuOpenSimulation.setEnabled(false);
+      menuOpenSimulation.setToolTipText("Not available in applet version");
+    }
+
+    menuConfOpenSimulation = new JMenu("Open & Reconfigure simulation");
+    menuConfOpenSimulation.setMnemonic(KeyEvent.VK_R);
+    menu.add(menuConfOpenSimulation);
+    if (isVisualizedInApplet()) {
+      menuConfOpenSimulation.setEnabled(false);
+      menuConfOpenSimulation.setToolTipText("Not available in applet version");
+    }
+
+    menuItem = new JMenuItem("Save simulation");
+    menuItem.setMnemonic(KeyEvent.VK_S);
+    menuItem.setActionCommand("save sim");
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+    if (isVisualizedInApplet()) {
+      menuItem.setEnabled(false);
+      menuItem.setToolTipText("Not available in applet version");
+    }
+
+    menu.addSeparator();
+
+    menuItem = new JMenuItem("Close all plugins");
+    menuItem.setActionCommand("close plugins");
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+
+    menu.addSeparator();
+
+    menuItem = new JMenuItem("Exit");
+    menuItem.setMnemonic(KeyEvent.VK_X);
+    menuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_X,
+        ActionEvent.CTRL_MASK));
+    menuItem.setActionCommand("quit");
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+    if (isVisualizedInApplet()) {
+      menuItem.setEnabled(false);
+      menuItem.setToolTipText("Not available in applet version");
+    }
+
+    // Simulation menu
+    menu = new JMenu("Simulation");
+    menu.setMnemonic(KeyEvent.VK_S);
+    menuBar.add(menu);
+
+    menuItem = new JMenuItem("Start/Stop simulation");
+    menuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_S,
+        ActionEvent.CTRL_MASK));
+    menuItem.addActionListener(new ActionListener() {
+      public void actionPerformed(ActionEvent e) {
+        /* Start/Stop current simulation */
+        Simulation sim = getSimulation();
+        if (sim == null) {
+          return;
+        }
+        if (sim.isRunning()) {
+          sim.stopSimulation();
+        } else {
+          sim.startSimulation();
+        }
+      }
+    });
+    menu.add(menuItem);
+
+    menuItem = new JMenuItem("Open Control");
+    menuItem.setMnemonic(KeyEvent.VK_C);
+    menuItem.setActionCommand("start plugin");
+    menuItem.putClientProperty("class", SimControl.class);
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+
+    menuItem = new JMenuItem("Information");
+    menuItem.setMnemonic(KeyEvent.VK_I);
+    menuItem.setActionCommand("start plugin");
+    menuItem.putClientProperty("class", SimInformation.class);
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+
+    // Mote type menu
+    menu = new JMenu("Mote Types");
+    menu.setMnemonic(KeyEvent.VK_T);
+    menuBar.add(menu);
+
+    // Mote type classes sub menu
+    menuMoteTypeClasses = new JMenu("Create mote type");
+    menuMoteTypeClasses.setMnemonic(KeyEvent.VK_C);
+    menuMoteTypeClasses.addMenuListener(new MenuListener() {
+      public void menuSelected(MenuEvent e) {
+        // Clear menu
+        menuMoteTypeClasses.removeAll();
+
+        // Recreate menu items
+        JMenuItem menuItem;
+
+        for (Class<? extends MoteType> moteTypeClass : moteTypeClasses) {
+          /* Sort mote types according to abstraction level */
+          String abstractionLevelDescription = GUI.getAbstractionLevelDescriptionOf(moteTypeClass);
+          if(abstractionLevelDescription == null) {
+            abstractionLevelDescription = "[unknown cross-level]";
+          }
+
+          /* Check if abstraction description already exists */
+          JSeparator abstractionLevelSeparator = null;
+          for (Component component: menuMoteTypeClasses.getMenuComponents()) {
+            if (component == null || !(component instanceof JSeparator)) {
+              continue;
+            }
+            JSeparator existing = (JSeparator) component;
+            if (abstractionLevelDescription.equals(existing.getToolTipText())) {
+              abstractionLevelSeparator = existing;
+              break;
+            }
+          }
+          if (abstractionLevelSeparator == null) {
+            abstractionLevelSeparator = new JSeparator();
+            abstractionLevelSeparator.setToolTipText(abstractionLevelDescription);
+            menuMoteTypeClasses.add(abstractionLevelSeparator);
+          }
+
+          String description = GUI.getDescriptionOf(moteTypeClass);
+          menuItem = new JMenuItem(description);
+          menuItem.setActionCommand("create mote type");
+          menuItem.putClientProperty("class", moteTypeClass);
+          menuItem.setToolTipText(abstractionLevelDescription);
+          menuItem.addActionListener(guiEventHandler);
+          if (isVisualizedInApplet() && moteTypeClass.equals(ContikiMoteType.class)) {
+            menuItem.setEnabled(false);
+            menuItem.setToolTipText("Not available in applet version");
+          }
+
+          /* Add new item directly after cross level separator */
+          for (int i=0; i < menuMoteTypeClasses.getMenuComponentCount(); i++) {
+            if (menuMoteTypeClasses.getMenuComponent(i) == abstractionLevelSeparator) {
+              menuMoteTypeClasses.add(menuItem, i+1);
+              break;
+            }
+          }
+        }
+      }
+
+      public void menuDeselected(MenuEvent e) {
+      }
+
+      public void menuCanceled(MenuEvent e) {
+      }
+    });
+    menu.add(menuMoteTypeClasses);
+
+    menuItem = new JMenuItem("Information");
+    menuItem.setActionCommand("start plugin");
+    menuItem.putClientProperty("class", MoteTypeInformation.class);
+    menuItem.addActionListener(guiEventHandler);
+
+    menu.add(menuItem);
+
+    // Mote menu
+    menu = new JMenu("Motes");
+    menu.setMnemonic(KeyEvent.VK_M);
+    menuBar.add(menu);
+
+    // Mote types sub menu
+    menuMoteTypes = new JMenu("Add motes of type");
+    menuMoteTypes.setMnemonic(KeyEvent.VK_A);
+    menuMoteTypes.addMenuListener(new MenuListener() {
+      public void menuSelected(MenuEvent e) {
+        // Clear menu
+        menuMoteTypes.removeAll();
+
+        if (mySimulation == null) {
+          return;
+        }
+
+        // Recreate menu items
+        JMenuItem menuItem;
+
+        for (MoteType moteType : mySimulation.getMoteTypes()) {
+          menuItem = new JMenuItem(moteType.getDescription());
+          menuItem.setActionCommand("add motes");
+          menuItem.setToolTipText(getDescriptionOf(moteType.getClass()));
+          menuItem.putClientProperty("motetype", moteType);
+          menuItem.addActionListener(guiEventHandler);
+          menuMoteTypes.add(menuItem);
+        }
+      }
+
+      public void menuDeselected(MenuEvent e) {
+      }
+
+      public void menuCanceled(MenuEvent e) {
+      }
+    });
+    menu.add(menuMoteTypes);
+
+    menuItem = new JMenuItem("Remove all motes");
+    menuItem.setActionCommand("remove all motes");
+    menuItem.addActionListener(guiEventHandler);
+
+    menu.add(menuItem);
+
+    // Plugins menu
+    if (menuPlugins == null) {
+      menuPlugins = new JMenu("Plugins");
+      menuPlugins.removeAll();
+
+      /* COOJA/GUI plugins at top, simulation plugins in middle, mote plugins at bottom */
+      menuPlugins.addSeparator();
+      menuPlugins.addSeparator();
+    } else {
+      menuPlugins.setText("Plugins");
+    }
+    menuPlugins.setMnemonic(KeyEvent.VK_P);
+    menuBar.add(menuPlugins);
+
+    // Settings menu
+    menu = new JMenu("Settings");
+    menuBar.add(menu);
+
+    menuItem = new JMenuItem("External tools paths");
+    menuItem.setActionCommand("edit paths");
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+    if (isVisualizedInApplet()) {
+      menuItem.setEnabled(false);
+      menuItem.setToolTipText("Not available in applet version");
+    }
+
+    menuItem = new JMenuItem("Manage project directories");
+    menuItem.setActionCommand("manage projects");
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+    if (isVisualizedInApplet()) {
+      menuItem.setEnabled(false);
+      menuItem.setToolTipText("Not available in applet version");
+    }
+
+    menuItem = new JMenuItem("Compiler configuration wizard");
+    menuItem.setActionCommand("configuration wizard");
+    menuItem.addActionListener(guiEventHandler);
+    menu.add(menuItem);
+    if (isVisualizedInApplet()) {
+      menuItem.setEnabled(false);
+      menuItem.setToolTipText("Not available in applet version");
+    }
+
+    menu.addSeparator();
+
+    menuItem = new JMenuItem("Java version: "
+        + System.getProperty("java.version") + " ("
+        + System.getProperty("java.vendor") + ")");
+    menuItem.setEnabled(false);
+    menu.add(menuItem);
+
+    // Mote plugins popup menu (not available via menu bar)
+    if (menuMotePluginClasses == null) {
+      menuMotePluginClasses = new Vector<Class<? extends Plugin>>();
+    }
+    return menuBar;
+  }
+
+  private static void configureFrame(final GUI gui, boolean createSimDialog) {
+
+    // Create and set up the window.
+    if (frame == null) {
+      frame = new JFrame("COOJA Simulator");
+    }
+    frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+
+    // Add menu bar
+    frame.setJMenuBar(gui.createMenuBar());
+
+    JComponent newContentPane = gui.getDesktopPane();
+    newContentPane.setOpaque(true);
+    frame.setContentPane(newContentPane);
+
+    frame.setSize(700, 700);
+    frame.setLocationRelativeTo(null);
+    frame.addWindowListener(gui.guiEventHandler);
+
+    /* Restore frame size and position */
+    int framePosX = Integer.parseInt(getExternalToolsSetting("FRAME_POS_X", "0"));
+    int framePosY = Integer.parseInt(getExternalToolsSetting("FRAME_POS_Y", "0"));
+    int frameWidth = Integer.parseInt(getExternalToolsSetting("FRAME_WIDTH", "0"));
+    int frameHeight = Integer.parseInt(getExternalToolsSetting("FRAME_HEIGHT", "0"));
+    String frameScreen = getExternalToolsSetting("FRAME_SCREEN", "");
+
+    /* Restore position to the same graphics device */
+    GraphicsDevice device = null;
+    GraphicsDevice all[] = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+    for (GraphicsDevice gd : all) {
+      if (gd.getIDstring().equals(frameScreen)) {
+        device = gd;
+      }
+    }
+
+    /* Check if frame should be maximized */
+    if (device != null) {
+      if (frameWidth == Integer.MAX_VALUE && frameHeight == Integer.MAX_VALUE) {
+        frame.setLocation(device.getDefaultConfiguration().getBounds().getLocation());
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+      } else if (frameWidth > 0 && frameHeight > 0) {
+
+        /* Sanity-check: will Cooja be visible on screen? */
+        boolean intersects =
+          device.getDefaultConfiguration().getBounds().intersects(
+              new Rectangle(framePosX, framePosY, frameWidth, frameHeight));
+
+        if (intersects) {
+          frame.setLocation(framePosX, framePosY);
+          frame.setSize(frameWidth, frameHeight);
+        }
+
+      }
+    }
+
+    frame.setVisible(true);
+
+    if (createSimDialog) {
+      SwingUtilities.invokeLater(new Runnable() {
+        public void run() {
+          gui.doCreateSimulation(true);
+        }
+      });
+    }
+  }
+
+  private static void configureApplet(final GUI gui, boolean createSimDialog) {
+    applet = CoojaApplet.applet;
+
+    // Add menu bar
+    JMenuBar menuBar = gui.createMenuBar();
+    applet.setJMenuBar(menuBar);
+
+    JComponent newContentPane = gui.getDesktopPane();
+    newContentPane.setOpaque(true);
+    applet.setContentPane(newContentPane);
+    applet.setSize(700, 700);
+
+    if (createSimDialog) {
+      SwingUtilities.invokeLater(new Runnable() {
+        public void run() {
+          gui.doCreateSimulation(true);
+        }
+      });
+    }
+  }
+
+  /**
+   * @return Current desktop pane (simulator visualizer)
+   */
+  public JDesktopPane getDesktopPane() {
+    return myDesktopPane;
+  }
+
+  private static void setLookAndFeel() {
+
+    JFrame.setDefaultLookAndFeelDecorated(true);
+    JDialog.setDefaultLookAndFeelDecorated(true);
+
+    /* Nimbus */
+    try {
+      String osName = System.getProperty("os.name").toLowerCase();
+      if (osName.startsWith("linux")) {
+        UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
+      } else {
+        UIManager.setLookAndFeel("com.sun.java.swing.plaf.nimbus.NimbusLookAndFeel");
+      }
+      return;
+    } catch (Exception e) {
+    }
+
+    /* System */
+    try {
+      UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+      return;
+    } catch (Exception e) {
+    }
+
+  }
+
+  private static boolean quickStartSimulationConfig(String source) {
+    logger.info("> Starting COOJA");
+    JDesktopPane desktop = new JDesktopPane();
+    desktop.setDragMode(JDesktopPane.OUTLINE_DRAG_MODE);
+    frame = new JFrame("COOJA Simulator");
+    GUI gui = new GUI(desktop);
+    configureFrame(gui, false);
+
+    gui.doLoadConfig(false, true, new File(source));
+    return true;
+  }
+
+  /**
+   * Allows user to create a simulation with a single mote type.
+   *
+   * @param source Contiki application file name
+   * @return True if simulation was created
+   */
+  private static boolean quickStartSimulation(String source) {
+    logger.info("> Starting COOJA");
+    JDesktopPane desktop = new JDesktopPane();
+    desktop.setDragMode(JDesktopPane.OUTLINE_DRAG_MODE);
+    frame = new JFrame("COOJA Simulator");
+    GUI gui = new GUI(desktop);
+    configureFrame(gui, false);
+
+    logger.info("> Creating simulation");
+    Simulation simulation = new Simulation(gui);
+    simulation.setTitle("Quickstarted simulation: " + source);
+    boolean simOK = CreateSimDialog.showDialog(GUI.getTopParentContainer(), simulation);
+    if (!simOK) {
+      logger.fatal("No simulation, aborting quickstart");
+      System.exit(1);
+    }
+    gui.setSimulation(simulation);
+
+    logger.info("> Creating mote type");
+    ContikiMoteType moteType = new ContikiMoteType();
+    moteType.setContikiSourceFile(new File(source));
+    moteType.setDescription("Contiki Mote Type (" + source + ")");
+
+    try {
+      boolean compileOK = moteType.configureAndInit(GUI.getTopParentContainer(), simulation, true);
+      if (!compileOK) {
+        logger.fatal("Mote type initialization failed, aborting quickstart");
+        return false;
+      }
+    } catch (MoteTypeCreationException e1) {
+      logger.fatal("Mote type initialization failed, aborting quickstart");
+      return false;
+    }
+    simulation.addMoteType(moteType);
+
+    logger.info("> Adding motes");
+    gui.doAddMotes(moteType);
+    return true;
+  }
+
+  //// PROJECT CONFIG AND EXTENDABLE PARTS METHODS ////
+
+  /**
+   * Register new mote type class.
+   *
+   * @param moteTypeClass
+   *          Class to register
+   */
+  public void registerMoteType(Class<? extends MoteType> moteTypeClass) {
+    moteTypeClasses.add(moteTypeClass);
+  }
+
+  /**
+   * Unregister all mote type classes.
+   */
+  public void unregisterMoteTypes() {
+    moteTypeClasses.clear();
+  }
+
+  /**
+   * @return All registered mote type classes
+   */
+  public Vector<Class<? extends MoteType>> getRegisteredMoteTypes() {
+    return moteTypeClasses;
+  }
+
+  /**
+   * Register new IP distributor class
+   *
+   * @param ipDistributorClass
+   *          Class to register
+   * @return True if class was registered
+   */
+  public boolean registerIPDistributor(
+      Class<? extends IPDistributor> ipDistributorClass) {
+    // Check that vector constructor exists
+    try {
+      ipDistributorClass.getConstructor(new Class[] { Vector.class });
+    } catch (Exception e) {
+      logger.fatal("No vector constructor found of IP distributor: "
+          + ipDistributorClass);
+      return false;
+    }
+
+    ipDistributorClasses.add(ipDistributorClass);
+    return true;
+  }
+
+  /**
+   * Unregister all IP distributors.
+   */
+  public void unregisterIPDistributors() {
+    ipDistributorClasses.clear();
+  }
+
+  /**
+   * @return All registered IP distributors
+   */
+  public Vector<Class<? extends IPDistributor>> getRegisteredIPDistributors() {
+    return ipDistributorClasses;
+  }
+
+  /**
+   * Register new positioner class.
+   *
+   * @param positionerClass
+   *          Class to register
+   * @return True if class was registered
+   */
+  public boolean registerPositioner(Class<? extends Positioner> positionerClass) {
+    // Check that interval constructor exists
+    try {
+      positionerClass
+          .getConstructor(new Class[] { int.class, double.class, double.class,
+              double.class, double.class, double.class, double.class });
+    } catch (Exception e) {
+      logger.fatal("No interval constructor found of positioner: "
+          + positionerClass);
+      return false;
+    }
+
+    positionerClasses.add(positionerClass);
+    return true;
+  }
+
+  /**
+   * Unregister all positioner classes.
+   */
+  public void unregisterPositioners() {
+    positionerClasses.clear();
+  }
+
+  /**
+   * @return All registered positioner classes
+   */
+  public Vector<Class<? extends Positioner>> getRegisteredPositioners() {
+    return positionerClasses;
+  }
+
+  /**
+   * Register new radio medium class.
+   *
+   * @param radioMediumClass
+   *          Class to register
+   * @return True if class was registered
+   */
+  public boolean registerRadioMedium(
+      Class<? extends RadioMedium> radioMediumClass) {
+    // Check that simulation constructor exists
+    try {
+      radioMediumClass.getConstructor(new Class[] { Simulation.class });
+    } catch (Exception e) {
+      logger.fatal("No simulation constructor found of radio medium: "
+          + radioMediumClass);
+      return false;
+    }
+
+    radioMediumClasses.add(radioMediumClass);
+    return true;
+  }
+
+  /**
+   * Unregister all radio medium classes.
+   */
+  public void unregisterRadioMediums() {
+    radioMediumClasses.clear();
+  }
+
+  /**
+   * @return All registered radio medium classes
+   */
+  public Vector<Class<? extends RadioMedium>> getRegisteredRadioMediums() {
+    return radioMediumClasses;
+  }
+
+  /**
+   * Builds new project configuration using current project directories settings.
+   * Reregisters mote types, plugins, IP distributors, positioners and radio
+   * mediums. This method may still return true even if all classes could not be
+   * registered, but always returns false if all project directory configuration
+   * files were not parsed correctly.
+   *
+   * Any registered temporary plugins will be saved and reregistered.
+   */
+  public void reparseProjectConfig() throws ParseProjectsException {
+    if (PROJECT_DEFAULT_CONFIG_FILENAME == null) {
+      if (isVisualizedInApplet()) {
+        PROJECT_DEFAULT_CONFIG_FILENAME = "/cooja_applet.config";
+      } else {
+        PROJECT_DEFAULT_CONFIG_FILENAME = "/cooja_default.config";
+      }
+    }
+
+    // Backup temporary plugins
+    Vector<Class<? extends Plugin>> oldTempPlugins = (Vector<Class<? extends Plugin>>) pluginClassesTemporary
+        .clone();
+
+    // Reset current configuration
+    unregisterMoteTypes();
+    unregisterPlugins();
+    unregisterIPDistributors();
+    unregisterPositioners();
+    unregisterRadioMediums();
+
+    try {
+      // Read default configuration
+      projectConfig = new ProjectConfig(true);
+    } catch (FileNotFoundException e) {
+      logger.fatal("Could not find default project config file: "
+          + PROJECT_DEFAULT_CONFIG_FILENAME);
+      throw (ParseProjectsException) new ParseProjectsException(
+          "Could not find default project config file: "
+          + PROJECT_DEFAULT_CONFIG_FILENAME).initCause(e);
+    } catch (IOException e) {
+      logger.fatal("Error when reading default project config file: "
+          + PROJECT_DEFAULT_CONFIG_FILENAME);
+      throw (ParseProjectsException) new ParseProjectsException(
+          "Error when reading default project config file: "
+          + PROJECT_DEFAULT_CONFIG_FILENAME).initCause(e);
+    }
+
+    if (!isVisualizedInApplet()) {
+      // Append project directory configurations
+      for (File projectDir : currentProjectDirs) {
+        try {
+          // Append config to general config
+          projectConfig.appendProjectDir(projectDir);
+        } catch (FileNotFoundException e) {
+          logger.fatal("Could not find project config file: " + projectDir);
+          throw (ParseProjectsException) new ParseProjectsException(
+              "Could not find project config file: " + projectDir).initCause(e);
+        } catch (IOException e) {
+          logger.fatal("Error when reading project config file: " + projectDir);
+          throw (ParseProjectsException) new ParseProjectsException(
+              "Error when reading project config file: " + projectDir).initCause(e);
+        }
+      }
+
+      // Create class loader
+      try {
+        projectDirClassLoader = createClassLoader(currentProjectDirs);
+      } catch (ClassLoaderCreationException e) {
+        throw (ParseProjectsException) new ParseProjectsException(
+        "Error when creating class loader").initCause(e);
+      }
+    } else {
+      projectDirClassLoader = null;
+    }
+
+    // Register mote types
+    String[] moteTypeClassNames = projectConfig.getStringArrayValue(GUI.class,
+        "MOTETYPES");
+    if (moteTypeClassNames != null) {
+      for (String moteTypeClassName : moteTypeClassNames) {
+        Class<? extends MoteType> moteTypeClass = tryLoadClass(this,
+            MoteType.class, moteTypeClassName);
+
+        if (moteTypeClass != null) {
+          registerMoteType(moteTypeClass);
+          // logger.info("Loaded mote type class: " + moteTypeClassName);
+        } else {
+          logger.warn("Could not load mote type class: " + moteTypeClassName);
+        }
+      }
+    }
+
+    // Register plugins
+    registerPlugin(SimControl.class, false); // Not in menu
+    registerPlugin(SimInformation.class, false); // Not in menu
+    registerPlugin(MoteTypeInformation.class, false); // Not in menu
+    String[] pluginClassNames = projectConfig.getStringArrayValue(GUI.class,
+        "PLUGINS");
+    if (pluginClassNames != null) {
+      for (String pluginClassName : pluginClassNames) {
+        Class<? extends Plugin> pluginClass = tryLoadClass(this, Plugin.class,
+            pluginClassName);
+
+        if (pluginClass != null) {
+          registerPlugin(pluginClass);
+          // logger.info("Loaded plugin class: " + pluginClassName);
+        } else {
+          logger.warn("Could not load plugin class: " + pluginClassName);
+        }
+      }
+    }
+
+    // Reregister temporary plugins again
+    if (oldTempPlugins != null) {
+      for (Class<? extends Plugin> pluginClass : oldTempPlugins) {
+        if (registerTemporaryPlugin(pluginClass)) {
+          // logger.info("Reregistered temporary plugin class: " +
+          // getDescriptionOf(pluginClass));
+        } else {
+          logger.warn("Could not reregister temporary plugin class: "
+              + getDescriptionOf(pluginClass));
+        }
+      }
+    }
+
+    // Register IP distributors
+    String[] ipDistClassNames = projectConfig.getStringArrayValue(GUI.class,
+        "IP_DISTRIBUTORS");
+    if (ipDistClassNames != null) {
+      for (String ipDistClassName : ipDistClassNames) {
+        Class<? extends IPDistributor> ipDistClass = tryLoadClass(this,
+            IPDistributor.class, ipDistClassName);
+
+        if (ipDistClass != null) {
+          registerIPDistributor(ipDistClass);
+          // logger.info("Loaded IP distributor class: " + ipDistClassName);
+        } else {
+          logger
+              .warn("Could not load IP distributor class: " + ipDistClassName);
+        }
+      }
+    }
+
+    // Register positioners
+    String[] positionerClassNames = projectConfig.getStringArrayValue(
+        GUI.class, "POSITIONERS");
+    if (positionerClassNames != null) {
+      for (String positionerClassName : positionerClassNames) {
+        Class<? extends Positioner> positionerClass = tryLoadClass(this,
+            Positioner.class, positionerClassName);
+
+        if (positionerClass != null) {
+          registerPositioner(positionerClass);
+          // logger.info("Loaded positioner class: " + positionerClassName);
+        } else {
+          logger
+              .warn("Could not load positioner class: " + positionerClassName);
+        }
+      }
+    }
+
+    // Register radio mediums
+    String[] radioMediumsClassNames = projectConfig.getStringArrayValue(
+        GUI.class, "RADIOMEDIUMS");
+    if (radioMediumsClassNames != null) {
+      for (String radioMediumClassName : radioMediumsClassNames) {
+        Class<? extends RadioMedium> radioMediumClass = tryLoadClass(this,
+            RadioMedium.class, radioMediumClassName);
+
+        if (radioMediumClass != null) {
+          registerRadioMedium(radioMediumClass);
+          // logger.info("Loaded radio medium class: " + radioMediumClassName);
+        } else {
+          logger.warn("Could not load radio medium class: "
+              + radioMediumClassName);
+        }
+      }
+    }
+
+  }
+
+  /**
+   * Returns the current project configuration common to the entire simulator.
+   *
+   * @return Current project configuration
+   */
+  public ProjectConfig getProjectConfig() {
+    return projectConfig;
+  }
+
+  /**
+   * Returns the current project directories common to the entire simulator.
+   *
+   * @return Current project directories.
+   */
+  public Vector<File> getProjectDirs() {
+    return currentProjectDirs;
+  }
+
+  // // PLUGIN METHODS ////
+
+  /**
+   * Show a started plugin in working area.
+   *
+   * @param plugin Plugin
+   */
+  public void showPlugin(final Plugin plugin) {
+    new RunnableInEDT<Boolean>() {
+      public Boolean work() {
+        JInternalFrame pluginFrame = plugin.getGUI();
+        if (pluginFrame == null) {
+          logger.fatal("Failed trying to show plugin without visualizer!");
+          return false;
+        }
+
+        int nrFrames = myDesktopPane.getAllFrames().length;
+        myDesktopPane.add(pluginFrame);
+
+        /* Set size if not already specified by plugin */
+        if (pluginFrame.getWidth() <= 0 || pluginFrame.getHeight() <= 0) {
+          pluginFrame.setSize(FRAME_STANDARD_WIDTH, FRAME_STANDARD_HEIGHT);
+        }
+
+        /* Set location if not already visible */
+        if (pluginFrame.getLocation().x <= 0 && pluginFrame.getLocation().y <= 0) {
+          pluginFrame.setLocation(
+              nrFrames * FRAME_NEW_OFFSET,
+              nrFrames * FRAME_NEW_OFFSET);
+        }
+
+        pluginFrame.setVisible(true);
+
+        /* Select plugin */
+        try {
+          for (JInternalFrame existingPlugin : myDesktopPane.getAllFrames()) {
+            existingPlugin.setSelected(false);
+          }
+          pluginFrame.setSelected(true);
+        } catch (Exception e) { }
+        myDesktopPane.moveToFront(pluginFrame);
+
+        return true;
+      }
+    }.invokeAndWait();
+  }
+
+  /**
+   * Close all mote plugins for given mote.
+   *
+   * @param mote Mote
+   */
+  public void closeMotePlugins(Mote mote) {
+    Vector<Plugin> pluginsToRemove = new Vector<Plugin>();
+
+    for (Plugin startedPlugin : startedPlugins) {
+      int pluginType = startedPlugin.getClass().getAnnotation(PluginType.class).value();
+
+      if (pluginType != PluginType.MOTE_PLUGIN) {
+        continue;
+      }
+
+      Mote pluginMote = (Mote) startedPlugin.getTag();
+      if (pluginMote == mote) {
+        pluginsToRemove.add(startedPlugin);
+      }
+    }
+
+    for (Plugin pluginToRemove: pluginsToRemove) {
+      removePlugin(pluginToRemove, false);
+    }
+  }
+
+  /**
+   * Remove a plugin from working area.
+   *
+   * @param plugin
+   *          Plugin to remove
+   * @param askUser
+   *          If plugin is the last one, ask user if we should remove current
+   *          simulation also?
+   */
+  public void removePlugin(final Plugin plugin, final boolean askUser) {
+    new RunnableInEDT<Boolean>() {
+      public Boolean work() {
+        /* Free resources */
+        plugin.closePlugin();
+        startedPlugins.remove(plugin);
+
+        /* Dispose visualized components */
+        if (plugin.getGUI() != null) {
+          plugin.getGUI().dispose();
+        }
+
+        /* (OPTIONAL) Remove simulation if all plugins are closed */
+        if (getSimulation() != null && askUser && startedPlugins.isEmpty()) {
+          doRemoveSimulation(true);
+        }
+
+        return true;
+      }
+    }.invokeAndWait();
+  }
+
+  /**
+   * Starts a plugin of given plugin class with given arguments.
+   *
+   * @param pluginClass
+   *          Plugin class
+   * @param gui
+   *          GUI passed as argument to all plugins
+   * @param simulation
+   *          Simulation passed as argument to mote and simulation plugins
+   * @param mote
+   *          Mote passed as argument to mote plugins
+   * @return Start plugin if any
+   */
+  public Plugin startPlugin(final Class<? extends Plugin> pluginClass,
+      final GUI gui, final Simulation simulation, final Mote mote) {
+
+    // Check that plugin class is registered
+    if (!pluginClasses.contains(pluginClass)) {
+      logger.fatal("Plugin class not registered: " + pluginClass);
+      return null;
+    }
+
+    // Construct plugin depending on plugin type
+    int pluginType = pluginClass.getAnnotation(PluginType.class).value();
+    Plugin plugin = null;
+
+    try {
+      if (pluginType == PluginType.MOTE_PLUGIN) {
+        if (mote == null) {
+          logger.fatal("Can't start mote plugin (no mote selected)");
+          return null;
+        }
+
+        plugin = pluginClass.getConstructor(
+            new Class[] { Mote.class, Simulation.class, GUI.class })
+            .newInstance(mote, simulation, gui);
+
+        // Tag plugin with mote
+        plugin.tagWithObject(mote);
+      } else if (pluginType == PluginType.SIM_PLUGIN
+          || pluginType == PluginType.SIM_STANDARD_PLUGIN) {
+        if (simulation == null) {
+          logger.fatal("Can't start simulation plugin (no simulation)");
+          return null;
+        }
+
+        plugin = pluginClass.getConstructor(
+            new Class[] { Simulation.class, GUI.class }).newInstance(
+            simulation, gui);
+      } else if (pluginType == PluginType.COOJA_PLUGIN
+          || pluginType == PluginType.COOJA_STANDARD_PLUGIN) {
+        if (gui == null) {
+          logger.fatal("Can't start COOJA plugin (no GUI)");
+          return null;
+        }
+
+        plugin = pluginClass.getConstructor(new Class[] { GUI.class }).newInstance(gui);
+      }
+    } catch (PluginRequiresVisualizationException e) {
+      logger.info("Plugin not started (requires visualization): " + pluginClass.getName());
+      return null;
+    } catch (InvocationTargetException e) {
+      if (e.getCause() != null &&
+          e.getCause().getClass().equals(PluginRequiresVisualizationException.class)) {
+        logger.info("Plugin not started (requires visualization): " + pluginClass.getName());
+      } else {
+        logger.fatal("Exception thrown when starting plugin: " + e);
+        e.printStackTrace();
+      }
+      return null;
+    } catch (Exception e) {
+      logger.fatal("Exception thrown when starting plugin: " + e);
+      e.printStackTrace();
+      return null;
+    }
+
+    if (plugin == null) {
+      return null;
+    }
+
+    // Add to active plugins list
+    startedPlugins.add(plugin);
+
+    // Show plugin if visualizer type
+    if (plugin.getGUI() != null) {
+      myGUI.showPlugin(plugin);
+    }
+
+    return plugin;
+  }
+
+  /**
+   * Register a plugin to be included in the GUI. The plugin will be visible in
+   * the menubar.
+   *
+   * @param newPluginClass
+   *          New plugin to register
+   * @return True if this plugin was registered ok, false otherwise
+   */
+  public boolean registerPlugin(Class<? extends Plugin> newPluginClass) {
+    return registerPlugin(newPluginClass, true);
+  }
+
+  /**
+   * Register a temporary plugin to be included in the GUI. The plugin will be
+   * visible in the menubar. This plugin will automatically be unregistered if
+   * the current simulation is removed.
+   *
+   * @param newPluginClass
+   *          New plugin to register
+   * @return True if this plugin was registered ok, false otherwise
+   */
+  public boolean registerTemporaryPlugin(Class<? extends Plugin> newPluginClass) {
+    if (pluginClasses.contains(newPluginClass)) {
+      return false;
+    }
+
+    boolean returnVal = registerPlugin(newPluginClass, true);
+    if (!returnVal) {
+      return false;
+    }
+
+    pluginClassesTemporary.add(newPluginClass);
+    return true;
+  }
+
+  /**
+   * Unregister a plugin class. Removes any plugin menu items links as well.
+   *
+   * @param pluginClass
+   *          Plugin class to unregister
+   */
+  public void unregisterPlugin(Class<? extends Plugin> pluginClass) {
+
+    // Remove (if existing) plugin class menu items
+    for (Component menuComponent : menuPlugins.getMenuComponents()) {
+      if (menuComponent.getClass().isAssignableFrom(JMenuItem.class)) {
+        JMenuItem menuItem = (JMenuItem) menuComponent;
+        if (menuItem.getClientProperty("class").equals(pluginClass)) {
+          menuPlugins.remove(menuItem);
+        }
+      }
+    }
+    if (menuMotePluginClasses.contains(pluginClass)) {
+      menuMotePluginClasses.remove(pluginClass);
+    }
+
+    // Remove from plugin vectors (including temporary)
+    if (pluginClasses.contains(pluginClass)) {
+      pluginClasses.remove(pluginClass);
+    }
+    if (pluginClassesTemporary.contains(pluginClass)) {
+      pluginClassesTemporary.remove(pluginClass);
+    }
+  }
+
+  /**
+   * Register a plugin to be included in the GUI.
+   *
+   * @param newPluginClass
+   *          New plugin to register
+   * @param addToMenu
+   *          Should this plugin be added to the dedicated plugins menubar?
+   * @return True if this plugin was registered ok, false otherwise
+   */
+  private boolean registerPlugin(final Class<? extends Plugin> newPluginClass,
+      boolean addToMenu) {
+
+    // Get description annotation (if any)
+    final String description = getDescriptionOf(newPluginClass);
+
+    // Get plugin type annotation (required)
+    final int pluginType;
+    if (newPluginClass.isAnnotationPresent(PluginType.class)) {
+      pluginType = newPluginClass.getAnnotation(PluginType.class).value();
+    } else {
+      pluginType = PluginType.UNDEFINED_PLUGIN;
+    }
+
+    // Check that plugin type is valid and constructor exists
+    try {
+      if (pluginType == PluginType.MOTE_PLUGIN) {
+        newPluginClass.getConstructor(new Class[] { Mote.class,
+            Simulation.class, GUI.class });
+      } else if (pluginType == PluginType.SIM_PLUGIN
+          || pluginType == PluginType.SIM_STANDARD_PLUGIN) {
+        newPluginClass.getConstructor(new Class[] { Simulation.class, GUI.class });
+      } else if (pluginType == PluginType.COOJA_PLUGIN
+          || pluginType == PluginType.COOJA_STANDARD_PLUGIN) {
+        newPluginClass.getConstructor(new Class[] { GUI.class });
+      } else {
+        logger.fatal("Could not find valid plugin type annotation in class " + newPluginClass);
+        return false;
+      }
+    } catch (NoSuchMethodException e) {
+      logger.fatal("Could not find valid constructor in class " + newPluginClass + ": " + e);
+      return false;
+    }
+
+    if (addToMenu && menuPlugins != null) {
+      new RunnableInEDT<Boolean>() {
+        public Boolean work() {
+          // Create 'start plugin'-menu item
+          JMenuItem menuItem = new JMenuItem(description);
+          menuItem.setActionCommand("start plugin");
+          menuItem.putClientProperty("class", newPluginClass);
+          menuItem.addActionListener(guiEventHandler);
+
+          /* Sort menu according to plugin type */
+          int itemIndex=0;
+          if (pluginType == PluginType.COOJA_PLUGIN || pluginType == PluginType.COOJA_STANDARD_PLUGIN) {
+            for (; itemIndex < menuPlugins.getItemCount(); itemIndex++) {
+              if (menuPlugins.getItem(itemIndex) == null /* separator */) {
+                break;
+              }
+            }
+            menuItem.setToolTipText("COOJA plugin: " + newPluginClass.getName());
+          } else if (pluginType == PluginType.SIM_PLUGIN || pluginType == PluginType.SIM_STANDARD_PLUGIN) {
+            for (; itemIndex < menuPlugins.getItemCount(); itemIndex++) {
+              if (menuPlugins.getItem(itemIndex) == null /* separator */) {
+                break;
+              }
+            }
+            itemIndex++;
+            for (; itemIndex < menuPlugins.getItemCount(); itemIndex++) {
+              if (menuPlugins.getItem(itemIndex) == null /* separator */) {
+                break;
+              }
+            }
+            menuItem.setToolTipText("Simulation plugin: " + newPluginClass.getName());
+          } else if (pluginType == PluginType.MOTE_PLUGIN) {
+            // Disable previous menu item and add new item to mote plugins menu
+            menuItem.setEnabled(false);
+            menuItem.setToolTipText("Mote plugin: " + newPluginClass.getName());
+            menuMotePluginClasses.add(newPluginClass);
+            itemIndex = menuPlugins.getItemCount();
+          }
+
+          menuPlugins.add(menuItem, itemIndex);
+          return true;
+        }
+      }.invokeAndWait();
+    }
+
+    pluginClasses.add(newPluginClass);
+    return true;
+  }
+
+  /**
+   * Unregister all plugin classes, including temporary plugins.
+   */
+  public void unregisterPlugins() {
+    if (menuPlugins != null) {
+      menuPlugins.removeAll();
+
+      /* COOJA/GUI plugins at top, simulation plugins in middle, mote plugins at bottom */
+      menuPlugins.addSeparator();
+      menuPlugins.addSeparator();
+    }
+    if (menuMotePluginClasses != null) {
+      menuMotePluginClasses.clear();
+    }
+    pluginClasses.clear();
+    pluginClassesTemporary.clear();
+  }
+
+  /**
+   * Return a mote plugins submenu for given mote.
+   *
+   * @param mote Mote
+   * @return Mote plugins menu
+   */
+  public JMenu createMotePluginsSubmenu(Mote mote) {
+    JMenu menuMotePlugins = new JMenu("Open mote plugin for " + mote);
+
+    for (Class<? extends Plugin> motePluginClass: menuMotePluginClasses) {
+      JMenuItem menuItem = new JMenuItem(getDescriptionOf(motePluginClass));
+      menuItem.setActionCommand("start plugin");
+      menuItem.putClientProperty("class", motePluginClass);
+      menuItem.putClientProperty("mote", mote);
+      menuItem.addActionListener(guiEventHandler);
+      menuMotePlugins.add(menuItem);
+    }
+    return menuMotePlugins;
+  }
+
+  // // GUI CONTROL METHODS ////
+
+  /**
+   * @return Current simulation
+   */
+  public Simulation getSimulation() {
+    return mySimulation;
+  }
+
+  public void setSimulation(Simulation sim) {
+    if (sim != null) {
+      doRemoveSimulation(false);
+    }
+    mySimulation = sim;
+
+    // Set frame title
+    if (frame != null) {
+      frame.setTitle("COOJA Simulator" + " - " + sim.getTitle());
+    }
+
+    // Open standard plugins (if none opened already)
+    if (startedPlugins.size() == 0) {
+      for (Class<? extends Plugin> pluginClass : pluginClasses) {
+        int pluginType = pluginClass.getAnnotation(PluginType.class).value();
+        if (pluginType == PluginType.SIM_STANDARD_PLUGIN) {
+          startPlugin(pluginClass, this, sim, null);
+        }
+      }
+    }
+
+    setChanged();
+    notifyObservers();
+  }
+
+  /**
+   * Creates a new mote type of the given mote type class.
+   *
+   * @param moteTypeClass
+   *          Mote type class
+   */
+  public void doCreateMoteType(Class<? extends MoteType> moteTypeClass) {
+    if (mySimulation == null) {
+      logger.fatal("Can't create mote type (no simulation)");
+      return;
+    }
+
+    // Stop simulation (if running)
+    mySimulation.stopSimulation();
+
+    // Create mote type
+    MoteType newMoteType = null;
+    boolean moteTypeOK = false;
+    try {
+      newMoteType = moteTypeClass.newInstance();
+      moteTypeOK = newMoteType.configureAndInit(GUI.getTopParentContainer(), mySimulation, isVisualized());
+    } catch (InstantiationException e) {
+      logger.fatal("Exception when creating mote type: " + e);
+      e.printStackTrace();
+      return;
+    } catch (IllegalAccessException e) {
+      logger.fatal("Exception when creating mote type: " + e);
+      e.printStackTrace();
+      return;
+    } catch (MoteTypeCreationException e) {
+      logger.fatal("Exception when creating mote type: " + e);
+      e.printStackTrace();
+      return;
+    }
+
+    // Add mote type to simulation
+    if (moteTypeOK) {
+      mySimulation.addMoteType(newMoteType);
+
+      /* Allow user to immediately add motes */
+      doAddMotes(newMoteType);
+    }
+  }
+
+  /**
+   * Remove current simulation
+   *
+   * @param askForConfirmation
+   *          Should we ask for confirmation if a simulation is already active?
+   * @return True if no simulation exists when method returns
+   */
+  public boolean doRemoveSimulation(boolean askForConfirmation) {
+
+    if (mySimulation == null) {
+      return true;
+    }
+
+    if (askForConfirmation) {
+      boolean ok = new RunnableInEDT<Boolean>() {
+        public Boolean work() {
+          String s1 = "Remove";
+          String s2 = "Cancel";
+          Object[] options = { s1, s2 };
+          int n = JOptionPane.showOptionDialog(GUI.getTopParentContainer(),
+              "You have an active simulation.\nDo you want to remove it?",
+              "Remove current simulation?", JOptionPane.YES_NO_OPTION,
+              JOptionPane.QUESTION_MESSAGE, null, options, s1);
+          if (n != JOptionPane.YES_OPTION) {
+            return false;
+          }
+          return true;
+        }
+      }.invokeAndWait();
+
+      if (!ok) {
+        return false;
+      }
+    }
+
+    // Close all started non-GUI plugins
+    for (Object startedPlugin : startedPlugins.toArray()) {
+      int pluginType = startedPlugin.getClass().getAnnotation(PluginType.class).value();
+      if (pluginType != PluginType.COOJA_PLUGIN
+          && pluginType != PluginType.COOJA_STANDARD_PLUGIN) {
+        removePlugin((Plugin) startedPlugin, false);
+      }
+    }
+
+    // Delete simulation
+    mySimulation.deleteObservers();
+    mySimulation.stopSimulation();
+
+    /* Clear current mote relations */
+    MoteRelation relations[] = getMoteRelations();
+    for (MoteRelation r: relations) {
+      removeMoteRelation(r.source, r.dest);
+    }
+
+    mySimulation = null;
+
+    // Unregister temporary plugin classes
+    Class<? extends Plugin>[] pluginClasses =
+      new Class[pluginClassesTemporary.size()];
+    pluginClassesTemporary.toArray(pluginClasses);
+    for (Class<? extends Plugin> pClass: pluginClasses) {
+      unregisterPlugin(pClass);
+    }
+
+    // Reset frame title
+    if (isVisualizedInFrame()) {
+      frame.setTitle("COOJA Simulator");
+    }
+
+    setChanged();
+    notifyObservers();
+
+    return true;
+  }
+
+  /**
+   * Load a simulation configuration file from disk
+   *
+   * @param askForConfirmation Ask for confirmation before removing any current simulation
+   * @param quick Quick-load simulation
+   * @param configFile Configuration file to load, if null a dialog will appear
+   */
+  public void doLoadConfig(boolean askForConfirmation, final boolean quick, File configFile) {
+    if (isVisualizedInApplet()) {
+      return;
+    }
+
+    /* Remove current simulation */
+    if (!doRemoveSimulation(true)) {
+      return;
+    }
+
+    /* Use provided configuration, or open File Chooser */
+    if (configFile != null && !configFile.isDirectory()) {
+      if (!configFile.exists() || !configFile.canRead()) {
+        logger.fatal("No read access to file: " + configFile.getAbsolutePath());
+        /* File does not exist, open dialog */
+        doLoadConfig(askForConfirmation, quick, null);
+        return;
+      }
+    } else {
+      final File suggestedFile = configFile;
+      configFile = new RunnableInEDT<File>() {
+        public File work() {
+          JFileChooser fc = new JFileChooser();
+
+          fc.setFileFilter(GUI.SAVED_SIMULATIONS_FILES);
+
+          if (suggestedFile != null && suggestedFile.isDirectory()) {
+            fc.setCurrentDirectory(suggestedFile);
+          } else {
+            /* Suggest file using file history */
+            Vector<File> history = getFileHistory();
+            if (history != null && history.size() > 0) {
+              File suggestedFile = getFileHistory().firstElement();
+              fc.setSelectedFile(suggestedFile);
+            }
+          }
+
+          int returnVal = fc.showOpenDialog(GUI.getTopParentContainer());
+          if (returnVal != JFileChooser.APPROVE_OPTION) {
+            logger.info("Load command cancelled by user...");
+            return null;
+          }
+
+          File file = fc.getSelectedFile();
+
+          if (!file.exists()) {
+            /* Try default file extension */
+            file = new File(file.getParent(), file.getName() + SAVED_SIMULATIONS_FILES);
+          }
+
+          if (!file.exists() || !file.canRead()) {
+            logger.fatal("No read access to file");
+            return null;
+          }
+
+          return file;
+        }
+      }.invokeAndWait();
+
+      if (configFile == null) {
+        return;
+      }
+    }
+
+    final JDialog progressDialog;
+
+    if (quick) {
+      final Thread loadThread = Thread.currentThread();
+
+      progressDialog = new RunnableInEDT<JDialog>() {
+        public JDialog work() {
+          final JDialog progressDialog;
+
+          if (GUI.getTopParentContainer() instanceof Window) {
+            progressDialog = new JDialog((Window) GUI.getTopParentContainer(), "Loading", ModalityType.APPLICATION_MODAL);
+          } else if (GUI.getTopParentContainer() instanceof Frame) {
+            progressDialog = new JDialog((Frame) GUI.getTopParentContainer(), "Loading", ModalityType.APPLICATION_MODAL);
+          } else if (GUI.getTopParentContainer() instanceof Dialog) {
+            progressDialog = new JDialog((Dialog) GUI.getTopParentContainer(), "Loading", ModalityType.APPLICATION_MODAL);
+          } else {
+            logger.warn("No parent container");
+            progressDialog = new JDialog((Frame) null, "Loading", ModalityType.APPLICATION_MODAL);
+          }
+
+          JPanel progressPanel = new JPanel(new BorderLayout());
+          JProgressBar progressBar;
+          JButton button;
+
+          progressBar = new JProgressBar(0, 100);
+          progressBar.setValue(0);
+          progressBar.setIndeterminate(true);
+
+          PROGRESS_BAR = progressBar; /* Allow various parts of COOJA to show messages */
+
+          button = new JButton("Cancel");
+          button.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+              if (loadThread.isAlive()) {
+                loadThread.interrupt();
+                doRemoveSimulation(false);
+              }
+              if (progressDialog.isDisplayable()) {
+                progressDialog.dispose();
+              }
+            }
+          });
+
+          progressPanel.add(BorderLayout.CENTER, progressBar);
+          progressPanel.add(BorderLayout.SOUTH, button);
+          progressPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+          progressPanel.setVisible(true);
+
+          progressDialog.getContentPane().add(progressPanel);
+          progressDialog.setSize(400, 200);
+
+          progressDialog.getRootPane().setDefaultButton(button);
+          progressDialog.setLocationRelativeTo(GUI.getTopParentContainer());
+          progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+          java.awt.EventQueue.invokeLater(new Runnable() {
+            public void run() {
+              progressDialog.setVisible(true);
+            }
+          });
+
+          return progressDialog;
+        }
+      }.invokeAndWait();
+    } else {
+      progressDialog = null;
+    }
+
+    // Load simulation in this thread, while showing progress monitor
+    final File fileToLoad = configFile;
+    Simulation newSim = null;
+    boolean shouldRetry = false;
+    do {
+      try {
+        shouldRetry = false;
+        myGUI.doRemoveSimulation(false);
+        newSim = loadSimulationConfig(fileToLoad, quick);
+        myGUI.setSimulation(newSim);
+        addToFileHistory(fileToLoad);
+      } catch (UnsatisfiedLinkError e) {
+        shouldRetry = showErrorDialog(GUI.getTopParentContainer(), "Simulation load error", e, true);
+      } catch (SimulationCreationException e) {
+        shouldRetry = showErrorDialog(GUI.getTopParentContainer(), "Simulation load error", e, true);
+      }
+    } while (shouldRetry);
+
+    if (progressDialog != null && progressDialog.isDisplayable()) {
+      progressDialog.dispose();
+    }
+    return;
+  }
+
+  /**
+   * Reload currently configured simulation.
+   * Reloading a simulation may include recompiling Contiki.
+   *
+   * @param autoStart Start executing simulation when loaded
+   * @param newSeed Change simulation seed
+   */
+  public void reloadCurrentSimulation(final boolean autoStart, final long randomSeed) {
+    if (getSimulation() == null) {
+      logger.fatal("No simulation to reload");
+      return;
+    }
+
+    final JDialog progressDialog = new JDialog(frame, "Reloading", true);
+    final Thread loadThread = new Thread(new Runnable() {
+      public void run() {
+
+        /* Get current simulation configuration */
+        Element root = new Element("simconf");
+        Element simulationElement = new Element("simulation");
+
+        simulationElement.addContent(getSimulation().getConfigXML());
+        root.addContent(simulationElement);
+        Collection<Element> pluginsConfig = getPluginsConfigXML();
+        if (pluginsConfig != null) {
+          root.addContent(pluginsConfig);
+        }
+
+        /* Remove current simulation, and load config */
+        boolean shouldRetry = false;
+        do {
+          try {
+            shouldRetry = false;
+            myGUI.doRemoveSimulation(false);
+            Simulation newSim = loadSimulationConfig(root, true);
+            myGUI.setSimulation(newSim);
+            myGUI.getSimulation().setRandomSeed(randomSeed);
+
+            if (autoStart) {
+              newSim.startSimulation();
+            }
+          } catch (UnsatisfiedLinkError e) {
+            shouldRetry = showErrorDialog(frame, "Simulation reload error", e, true);
+
+            myGUI.doRemoveSimulation(false);
+          } catch (SimulationCreationException e) {
+            shouldRetry = showErrorDialog(frame, "Simulation reload error", e, true);
+
+            myGUI.doRemoveSimulation(false);
+          }
+        } while (shouldRetry);
+
+        if (progressDialog.isDisplayable()) {
+          progressDialog.dispose();
+        }
+      }
+    });
+
+    // Display progress dialog while reloading
+    JProgressBar progressBar = new JProgressBar(0, 100);
+    progressBar.setValue(0);
+    progressBar.setIndeterminate(true);
+
+    PROGRESS_BAR = progressBar; /* Allow various parts of COOJA to show messages */
+
+    JButton button = new JButton("Cancel");
+    button.addActionListener(new ActionListener() {
+      public void actionPerformed(ActionEvent e) {
+        if (loadThread.isAlive()) {
+          loadThread.interrupt();
+          doRemoveSimulation(false);
+        }
+        if (progressDialog.isDisplayable()) {
+          progressDialog.dispose();
+        }
+      }
+    });
+
+    JPanel progressPanel = new JPanel(new BorderLayout());
+    progressPanel.add(BorderLayout.CENTER, progressBar);
+    progressPanel.add(BorderLayout.SOUTH, button);
+    progressPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+    progressPanel.setVisible(true);
+
+    progressDialog.getContentPane().add(progressPanel);
+    progressDialog.setSize(400, 200);
+
+    progressDialog.getRootPane().setDefaultButton(button);
+    progressDialog.setLocationRelativeTo(frame);
+    progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+    loadThread.start();
+    progressDialog.setVisible(true);
+  }
+
+  /**
+   * Reload currently configured simulation.
+   * Reloading a simulation may include recompiling Contiki.
+   * The same random seed is used.
+   *
+   * @see #reloadCurrentSimulation(boolean, boolean)
+   * @param autoStart Start executing simulation when loaded
+   */
+  public void reloadCurrentSimulation(boolean autoStart) {
+    reloadCurrentSimulation(autoStart, getSimulation().getRandomSeed());
+  }
+
+  /**
+   * Save current simulation configuration to disk
+   *
+   * @param askForConfirmation
+   *          Ask for confirmation before overwriting file
+   */
+  public void doSaveConfig(boolean askForConfirmation) {
+    if (isVisualizedInApplet()) {
+      return;
+    }
+
+    if (mySimulation != null) {
+      mySimulation.stopSimulation();
+
+      JFileChooser fc = new JFileChooser();
+
+      fc.setFileFilter(GUI.SAVED_SIMULATIONS_FILES);
+
+      // Suggest file using history
+      Vector<File> history = getFileHistory();
+      if (history != null && history.size() > 0) {
+        File suggestedFile = getFileHistory().firstElement();
+        fc.setSelectedFile(suggestedFile);
+      }
+
+      int returnVal = fc.showSaveDialog(myDesktopPane);
+      if (returnVal == JFileChooser.APPROVE_OPTION) {
+        File saveFile = fc.getSelectedFile();
+        if (!fc.accept(saveFile)) {
+          saveFile = new File(saveFile.getParent(), saveFile.getName()
+              + SAVED_SIMULATIONS_FILES);
+        }
+
+        if (saveFile.exists()) {
+          if (askForConfirmation) {
+            String s1 = "Overwrite";
+            String s2 = "Cancel";
+            Object[] options = { s1, s2 };
+            int n = JOptionPane
+                .showOptionDialog(
+                    GUI.getTopParentContainer(),
+                    "A file with the same name already exists.\nDo you want to remove it?",
+                    "Overwrite existing file?", JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE, null, options, s1);
+            if (n != JOptionPane.YES_OPTION) {
+              return;
+            }
+          }
+        }
+
+        if (!saveFile.exists() || saveFile.canWrite()) {
+          saveSimulationConfig(saveFile);
+          addToFileHistory(saveFile);
+        } else {
+          logger.fatal("No write access to file");
+        }
+
+      } else {
+        logger.info("Save command cancelled by user...");
+      }
+    }
+  }
+
+  /**
+   * Add new mote to current simulation
+   */
+  public void doAddMotes(MoteType moteType) {
+    if (mySimulation != null) {
+      mySimulation.stopSimulation();
+
+      Vector<Mote> newMotes = AddMoteDialog.showDialog(getTopParentContainer(), mySimulation,
+          moteType);
+      if (newMotes != null) {
+        for (Mote newMote : newMotes) {
+          mySimulation.addMote(newMote);
+        }
+      }
+
+    } else {
+      logger.warn("No simulation active");
+    }
+  }
+
+  /**
+   * Create a new simulation
+   *
+   * @param askForConfirmation
+   *          Should we ask for confirmation if a simulation is already active?
+   */
+  public void doCreateSimulation(boolean askForConfirmation) {
+    /* Remove current simulation */
+    if (!doRemoveSimulation(askForConfirmation)) {
+      return;
+    }
+
+    // Create new simulation
+    Simulation newSim = new Simulation(this);
+    boolean createdOK = CreateSimDialog.showDialog(GUI.getTopParentContainer(), newSim);
+    if (createdOK) {
+      myGUI.setSimulation(newSim);
+    }
+  }
+
+  /**
+   * Quit program
+   *
+   * @param askForConfirmation
+   *          Should we ask for confirmation before quitting?
+   */
+  public void doQuit(boolean askForConfirmation) {
+    if (isVisualizedInApplet()) {
+      return;
+    }
+
+    if (askForConfirmation) {
+      String s1 = "Quit";
+      String s2 = "Cancel";
+      Object[] options = { s1, s2 };
+      int n = JOptionPane.showOptionDialog(GUI.getTopParentContainer(),
+          "Sure you want to quit?",
+          "Close COOJA Simulator", JOptionPane.YES_NO_OPTION,
+          JOptionPane.QUESTION_MESSAGE, null, options, s1);
+      if (n != JOptionPane.YES_OPTION) {
+        return;
+      }
+    }
+
+    // Clean up resources
+    Object[] plugins = startedPlugins.toArray();
+    for (Object plugin : plugins) {
+      removePlugin((Plugin) plugin, false);
+    }
+
+    /* Store frame size and position */
+    if (isVisualizedInFrame()) {
+      setExternalToolsSetting("FRAME_SCREEN", frame.getGraphicsConfiguration().getDevice().getIDstring());
+      setExternalToolsSetting("FRAME_POS_X", "" + frame.getLocationOnScreen().x);
+      setExternalToolsSetting("FRAME_POS_Y", "" + frame.getLocationOnScreen().y);
+
+      if (frame.getExtendedState() == JFrame.MAXIMIZED_BOTH) {
+        setExternalToolsSetting("FRAME_WIDTH", "" + Integer.MAX_VALUE);
+        setExternalToolsSetting("FRAME_HEIGHT", "" + Integer.MAX_VALUE);
+      } else {
+        setExternalToolsSetting("FRAME_WIDTH", "" + frame.getWidth());
+        setExternalToolsSetting("FRAME_HEIGHT", "" + frame.getHeight());
+      }
+    }
+    saveExternalToolsUserSettings();
+
+    System.exit(0);
+  }
+
+  // // EXTERNAL TOOLS SETTINGS METHODS ////
+
+  /**
+   * @return Number of external tools settings
+   */
+  public static int getExternalToolsSettingsCount() {
+    return externalToolsSettingNames.length;
+  }
+
+  /**
+   * Get name of external tools setting at given index.
+   *
+   * @param index
+   *          Setting index
+   * @return Name
+   */
+  public static String getExternalToolsSettingName(int index) {
+    return externalToolsSettingNames[index];
+  }
+
+  /**
+   * @param name
+   *          Name of setting
+   * @return Value
+   */
+  public static String getExternalToolsSetting(String name) {
+    return currentExternalToolsSettings.getProperty(name);
+  }
+
+  /**
+   * @param name
+   *          Name of setting
+   * @param defaultValue
+   *          Default value
+   * @return Value
+   */
+  public static String getExternalToolsSetting(String name, String defaultValue) {
+    return currentExternalToolsSettings.getProperty(name, defaultValue);
+  }
+
+  /**
+   * @param name
+   *          Name of setting
+   * @param defaultValue
+   *          Default value
+   * @return Value
+   */
+  public static String getExternalToolsDefaultSetting(String name, String defaultValue) {
+    return defaultExternalToolsSettings.getProperty(name, defaultValue);
+  }
+
+  /**
+   * @param name
+   *          Name of setting
+   * @param newVal
+   *          New value
+   */
+  public static void setExternalToolsSetting(String name, String newVal) {
+    currentExternalToolsSettings.setProperty(name, newVal);
+  }
+
+  /**
+   * Load external tools settings from default file.
+   */
+  public static void loadExternalToolsDefaultSettings() {
+    String osName = System.getProperty("os.name").toLowerCase();
+    String osArch = System.getProperty("os.arch").toLowerCase();
+
+    String filename = null;
+    if (osName.startsWith("win")) {
+      filename = GUI.EXTERNAL_TOOLS_WIN32_SETTINGS_FILENAME;
+    } else if (osName.startsWith("mac os x")) {
+      filename = GUI.EXTERNAL_TOOLS_MACOSX_SETTINGS_FILENAME;
+    } else if (osName.startsWith("linux")) {
+      filename = GUI.EXTERNAL_TOOLS_LINUX_SETTINGS_FILENAME;
+      if (osArch.startsWith("amd64")) {
+        filename = GUI.EXTERNAL_TOOLS_LINUX_64_SETTINGS_FILENAME;
+      }
+    } else {
+      logger.warn("Unknown system: " + osName);
+      logger.warn("Using default linux external tools configuration");
+      filename = GUI.EXTERNAL_TOOLS_LINUX_SETTINGS_FILENAME;
+    }
+
+    logger.info("Loading external tools user settings from: " + filename);
+
+    try {
+      InputStream in = GUI.class.getResourceAsStream(filename);
+      if (in == null) {
+        throw new FileNotFoundException(filename + " not found");
+      }
+      Properties settings = new Properties();
+      settings.load(in);
+      in.close();
+
+      currentExternalToolsSettings = settings;
+      defaultExternalToolsSettings = (Properties) currentExternalToolsSettings.clone();
+    } catch (IOException e) {
+      // Error while importing default properties
+      logger.warn(
+          "Error when reading external tools settings from " + filename, e);
+    } finally {
+      if (currentExternalToolsSettings == null) {
+        defaultExternalToolsSettings = new Properties();
+        currentExternalToolsSettings = new Properties();
+      }
+    }
+  }
+
+  /**
+   * Load user values from external properties file
+   */
+  public static void loadExternalToolsUserSettings() {
+    if (externalToolsUserSettingsFile == null) {
+      return;
+    }
+
+    try {
+      FileInputStream in = new FileInputStream(externalToolsUserSettingsFile);
+      Properties settings = new Properties();
+      settings.load(in);
+      in.close();
+
+      Enumeration en = settings.keys();
+      while (en.hasMoreElements()) {
+        String key = (String) en.nextElement();
+        setExternalToolsSetting(key, settings.getProperty(key));
+      }
+
+    } catch (FileNotFoundException e) {
+      // No default configuration file found, using default
+    } catch (IOException e) {
+      // Error while importing saved properties, using default
+      logger.warn("Error when reading default settings from " + externalToolsUserSettingsFile);
+    }
+  }
+
+  /**
+   * Save external tools user settings to file.
+   */
+  public static void saveExternalToolsUserSettings() {
+    if (isVisualizedInApplet()) {
+      return;
+    }
+
+    if (externalToolsUserSettingsFileReadOnly) {
+      return;
+    }
+
+    try {
+      FileOutputStream out = new FileOutputStream(externalToolsUserSettingsFile);
+
+      Properties differingSettings = new Properties();
+      Enumeration keyEnum = currentExternalToolsSettings.keys();
+      while (keyEnum.hasMoreElements()) {
+        String key = (String) keyEnum.nextElement();
+        String defaultSetting = getExternalToolsDefaultSetting(key, "");
+        String currentSetting = getExternalToolsSetting(key, "");
+        if (!defaultSetting.equals(currentSetting)) {
+          differingSettings.setProperty(key, currentSetting);
+        }
+      }
+
+      differingSettings.store(out, "COOJA External Tools (User specific)");
+      out.close();
+    } catch (FileNotFoundException ex) {
+      // Could not open settings file for writing, aborting
+      logger.warn("Could not save external tools user settings to "
+          + externalToolsUserSettingsFile + ", aborting");
+    } catch (IOException ex) {
+      // Could not open settings file for writing, aborting
+      logger.warn("Error while saving external tools user settings to "
+          + externalToolsUserSettingsFile + ", aborting");
+    }
+  }
+
+  // // GUI EVENT HANDLER ////
+
+  private class GUIEventHandler implements ActionListener, WindowListener {
+    public void windowDeactivated(WindowEvent e) {
+    }
+
+    public void windowIconified(WindowEvent e) {
+    }
+
+    public void windowDeiconified(WindowEvent e) {
+    }
+
+    public void windowOpened(WindowEvent e) {
+    }
+
+    public void windowClosed(WindowEvent e) {
+    }
+
+    public void windowActivated(WindowEvent e) {
+    }
+
+    public void windowClosing(WindowEvent e) {
+      myGUI.doQuit(true);
+    }
+
+    public void actionPerformed(ActionEvent e) {
+      if (e.getActionCommand().equals("new sim")) {
+        myGUI.doCreateSimulation(true);
+      } else if (e.getActionCommand().equals("close sim")) {
+        myGUI.doRemoveSimulation(true);
+      } else if (e.getActionCommand().equals("confopen sim")) {
+        new Thread(new Runnable() {
+          public void run() {
+            myGUI.doLoadConfig(true, false, null);
+          }
+        }).start();
+      } else if (e.getActionCommand().equals("confopen last sim")) {
+        final File file = (File) ((JMenuItem) e.getSource()).getClientProperty("file");
+        new Thread(new Runnable() {
+          public void run() {
+            myGUI.doLoadConfig(true, false, file);
+          }
+        }).start();
+      } else if (e.getActionCommand().equals("open sim")) {
+        new Thread(new Runnable() {
+          public void run() {
+            myGUI.doLoadConfig(true, true, null);
+          }
+        }).start();
+      } else if (e.getActionCommand().equals("open last sim")) {
+        final File file = (File) ((JMenuItem) e.getSource()).getClientProperty("file");
+        new Thread(new Runnable() {
+          public void run() {
+            myGUI.doLoadConfig(true, true, file);
+          }
+        }).start();
+      } else if (e.getActionCommand().equals("save sim")) {
+        myGUI.doSaveConfig(true);
+      } else if (e.getActionCommand().equals("quit")) {
+        myGUI.doQuit(true);
+      } else if (e.getActionCommand().equals("create mote type")) {
+        myGUI.doCreateMoteType((Class<? extends MoteType>) ((JMenuItem) e
+            .getSource()).getClientProperty("class"));
+      } else if (e.getActionCommand().equals("add motes")) {
+        myGUI.doAddMotes((MoteType) ((JMenuItem) e.getSource())
+            .getClientProperty("motetype"));
+      } else if (e.getActionCommand().equals("edit paths")) {
+        ExternalToolsDialog.showDialog(GUI.getTopParentContainer());
+      } else if (e.getActionCommand().equals("close plugins")) {
+        Object[] plugins = startedPlugins.toArray();
+        for (Object plugin : plugins) {
+          removePlugin((Plugin) plugin, false);
+        }
+      } else if (e.getActionCommand().equals("remove all motes")) {
+        if (getSimulation() != null) {
+          if (getSimulation().isRunning()) {
+            getSimulation().stopSimulation();
+          }
+
+          while (getSimulation().getMotesCount() > 0) {
+            getSimulation().removeMote(getSimulation().getMote(0));
+          }
+        }
+      } else if (e.getActionCommand().equals("manage projects")) {
+        Vector<File> newProjects = ProjectDirectoriesDialog.showDialog(
+            GUI.getTopParentContainer(), currentProjectDirs, null);
+        if (newProjects != null) {
+          currentProjectDirs = newProjects;
+          try {
+            reparseProjectConfig();
+          } catch (ParseProjectsException e2) {
+            logger.fatal("Error when loading projects: " + e2.getMessage());
+            e2.printStackTrace();
+            if (myGUI.isVisualized()) {
+              JOptionPane.showMessageDialog(GUI.getTopParentContainer(),
+                  "Error when loading projects.\nStack trace printed to console.",
+                  "Error", JOptionPane.ERROR_MESSAGE);
+            }
+            return;
+          }
+        }
+      } else if (e.getActionCommand().equals("configuration wizard")) {
+        ConfigurationWizard.startWizard(GUI.getTopParentContainer(), GUI.this);
+      } else if (e.getActionCommand().equals("start plugin")) {
+        Class<Plugin> pluginClass =
+          (Class<Plugin>) ((JMenuItem) e.getSource()).getClientProperty("class");
+        Mote mote = (Mote) ((JMenuItem) e.getSource()).getClientProperty("mote");
+        startPlugin(pluginClass, myGUI, mySimulation, mote);
+      } else {
+        logger.warn("Unhandled action: " + e.getActionCommand());
+      }
+    }
+  }
+
+  // // VARIOUS HELP METHODS ////
+
+  /**
+   * Help method that tries to load and initialize a class with given name.
+   *
+   * @param <N>
+   *          Class extending given class type
+   * @param classType
+   *          Class type
+   * @param className
+   *          Class name
+   * @return Class extending given class type or null if not found
+   */
+  public <N extends Object> Class<? extends N> tryLoadClass(
+      Object callingObject, Class<N> classType, String className) {
+
+    if (callingObject != null) {
+      try {
+        return callingObject.getClass().getClassLoader().loadClass(className)
+            .asSubclass(classType);
+      } catch (ClassNotFoundException e) {
+      } catch (UnsupportedClassVersionError e) {
+      }
+    }
+
+    try {
+      return Class.forName(className).asSubclass(classType);
+    } catch (ClassNotFoundException e) {
+    } catch (UnsupportedClassVersionError e) {
+    }
+
+    if (!isVisualizedInApplet()) {
+      try {
+        if (projectDirClassLoader != null) {
+          return projectDirClassLoader.loadClass(className).asSubclass(
+              classType);
+        }
+      } catch (NoClassDefFoundError e) {
+      } catch (ClassNotFoundException e) {
+      } catch (UnsupportedClassVersionError e) {
+      }
+    }
+
+    return null;
+  }
+
+  public ClassLoader createProjectDirClassLoader(Vector<File> projectsDirs)
+  throws ParseProjectsException, ClassLoaderCreationException {
+    if (projectDirClassLoader == null) {
+      reparseProjectConfig();
+    }
+    return createClassLoader(projectDirClassLoader, projectsDirs);
+  }
+
+  private ClassLoader createClassLoader(Vector<File> currentProjectDirs)
+  throws ClassLoaderCreationException
+  {
+    return createClassLoader(ClassLoader.getSystemClassLoader(),
+        currentProjectDirs);
+  }
+
+  private File findJarFile(File projectDir, String jarfile) {
+    File fp = new File(jarfile);
+    if (!fp.exists()) {
+      fp = new File(projectDir, jarfile);
+    }
+    if (!fp.exists()) {
+      fp = new File(projectDir, "java/" + jarfile);
+    }
+    if (!fp.exists()) {
+      fp = new File(projectDir, "java/lib/" + jarfile);
+    }
+    if (!fp.exists()) {
+      fp = new File(projectDir, "lib/" + jarfile);
+    }
+    return fp.exists() ? fp : null;
+  }
+
+  private ClassLoader createClassLoader(ClassLoader parent,
+      Vector<File> projectDirs) throws ClassLoaderCreationException {
+    if (projectDirs == null || projectDirs.isEmpty()) {
+      return parent;
+    }
+
+    // Combine class loader from all project directories (including any
+    // specified JAR files)
+    ArrayList<URL> urls = new ArrayList<URL>();
+    for (int j = projectDirs.size() - 1; j >= 0; j--) {
+      File projectDir = projectDirs.get(j);
+      try {
+        urls.add((new File(projectDir, "java")).toURI().toURL());
+
+        // Read configuration to check if any JAR files should be loaded
+        ProjectConfig projectConfig = new ProjectConfig(false);
+        projectConfig.appendProjectDir(projectDir);
+        String[] projectJarFiles = projectConfig.getStringArrayValue(
+            GUI.class, "JARFILES");
+        if (projectJarFiles != null && projectJarFiles.length > 0) {
+          for (String jarfile : projectJarFiles) {
+            File jarpath = findJarFile(projectDir, jarfile);
+            if (jarpath == null) {
+              throw new FileNotFoundException(jarfile);
+            }
+            urls.add(jarpath.toURI().toURL());
+          }
+        }
+
+      } catch (Exception e) {
+        logger.fatal("Error when trying to read JAR-file in " + projectDir
+            + ": " + e);
+        throw (ClassLoaderCreationException) new ClassLoaderCreationException(
+            "Error when trying to read JAR-file in " + projectDir).initCause(e);
+      }
+    }
+
+    URL[] urlsArray = urls.toArray(new URL[urls.size()]);
+    /* TODO Load from webserver if applet */
+    return new URLClassLoader(urlsArray, parent);
+  }
+
+  /**
+   * Help method that returns the description for given object. This method
+   * reads from the object's class annotations if existing. Otherwise it returns
+   * the simple class name of object's class.
+   *
+   * @param object
+   *          Object
+   * @return Description
+   */
+  public static String getDescriptionOf(Object object) {
+    return getDescriptionOf(object.getClass());
+  }
+
+  /**
+   * Help method that returns the description for given class. This method reads
+   * from class annotations if existing. Otherwise it returns the simple class
+   * name.
+   *
+   * @param clazz
+   *          Class
+   * @return Description
+   */
+  public static String getDescriptionOf(Class<? extends Object> clazz) {
+    if (clazz.isAnnotationPresent(ClassDescription.class)) {
+      return clazz.getAnnotation(ClassDescription.class).value();
+    }
+    return clazz.getSimpleName();
+  }
+
+  /**
+   * Help method that returns the abstraction level description for given mote type class.
+   *
+   * @param clazz
+   *          Class
+   * @return Description
+   */
+  public static String getAbstractionLevelDescriptionOf(Class<? extends MoteType> clazz) {
+    if (clazz.isAnnotationPresent(AbstractionLevelDescription.class)) {
+      return clazz.getAnnotation(AbstractionLevelDescription.class).value();
+    }
+    return null;
+  }
+
+  /**
+   * Load configurations and create a GUI.
+   *
+   * @param args
+   *          null
+   */
+  public static void main(String[] args) {
+
+    try {
+      // Configure logger
+      if ((new File(LOG_CONFIG_FILE)).exists()) {
+        DOMConfigurator.configure(LOG_CONFIG_FILE);
+      } else {
+        // Used when starting from jar
+        DOMConfigurator.configure(GUI.class.getResource("/" + LOG_CONFIG_FILE));
+      }
+
+      externalToolsUserSettingsFile = new File(System.getProperty("user.home"), EXTERNAL_TOOLS_USER_SETTINGS_FILENAME);
+    } catch (AccessControlException e) {
+      BasicConfigurator.configure();
+      externalToolsUserSettingsFile = null;
+    }
+
+    /* Look and Feel: Nimbus */
+    setLookAndFeel();
+
+    // Parse general command arguments
+    for (String element : args) {
+      if (element.startsWith("-contiki=")) {
+        String arg = element.substring("-contiki=".length());
+        GUI.specifiedContikiPath = arg;
+      }
+
+      if (element.startsWith("-external_tools_config=")) {
+        String arg = element.substring("-external_tools_config=".length());
+        File specifiedExternalToolsConfigFile = new File(arg);
+        if (!specifiedExternalToolsConfigFile.exists()) {
+          logger.fatal("Specified external tools configuration not found: " + specifiedExternalToolsConfigFile);
+          specifiedExternalToolsConfigFile = null;
+          System.exit(1);
+        } else {
+          GUI.externalToolsUserSettingsFile = specifiedExternalToolsConfigFile;
+          GUI.externalToolsUserSettingsFileReadOnly = true;
+        }
+      }
+    }
+
+    // Check if simulator should be quick-started
+    if (args.length > 0 && args[0].startsWith("-quickstart=")) {
+      String contikiApp = args[0].substring("-quickstart=".length());
+
+      /* Cygwin fix */
+      if (contikiApp.startsWith("/cygdrive/")) {
+        char driveCharacter = contikiApp.charAt("/cygdrive/".length());
+        contikiApp = contikiApp.replace("/cygdrive/" + driveCharacter + "/", driveCharacter + ":/");
+      }
+
+      boolean ok = false;
+      if (contikiApp.endsWith(".csc")) {
+
+        ok = quickStartSimulationConfig(contikiApp);
+
+      } else {
+        if (contikiApp.endsWith(".cooja")) {
+          contikiApp = contikiApp.substring(0, contikiApp.length() - ".cooja".length());
+        }
+        if (!contikiApp.endsWith(".c")) {
+          contikiApp += ".c";
+        }
+
+        ok = quickStartSimulation(contikiApp);
+      }
+
+      if (!ok) {
+        System.exit(1);
+      }
+
+    } else if (args.length > 0 && args[0].startsWith("-nogui")) {
+
+      /* Parse optional script argument */
+      String tmpTest=null;
+      for (int i=1; i < args.length; i++) {
+        if (args[i].startsWith("-test=")) {
+          tmpTest = args[i].substring("-test=".length());
+        } else {
+          logger.fatal("Unknown argument: " + args[i]);
+          System.exit(1);
+        }
+
+      }
+
+      final File scriptFile;
+      final File configFile;
+      final File logFile;
+      if (tmpTest != null) {
+        /* Locate script and simulation config files */
+        scriptFile = new File(tmpTest + ".js");
+        configFile = new File(tmpTest + ".csc");
+        logFile = new File(tmpTest + ".log");
+        if (!scriptFile.exists()) {
+          logger.fatal("Can't locate script: " + scriptFile);
+          System.exit(1);
+        }
+        if (!configFile.exists()) {
+          logger.fatal("Can't locate simulation config: " + configFile);
+          System.exit(1);
+        }
+        if (logFile.exists()) {
+          logFile.delete();
+        }
+        if (logFile.exists() && !logFile.canWrite()) {
+          logger.fatal("Can't write to log file: " + logFile);
+          System.exit(1);
+        }
+      } else {
+        scriptFile = null;
+        configFile = null;
+        logFile = null;
+      }
+
+      /* No GUI start-up */
+      javax.swing.SwingUtilities.invokeLater(new Runnable() {
+        public void run() {
+          JDesktopPane desktop = new JDesktopPane();
+          desktop.setDragMode(JDesktopPane.OUTLINE_DRAG_MODE);
+          GUI gui = new GUI(desktop);
+
+          if (scriptFile != null && configFile != null) {
+            /* Load and start script plugin (no-GUI version) */
+            ScriptRunner scriptPlugin =
+              (ScriptRunner) gui.startPlugin(ScriptRunner.class, gui, null, null);
+
+            /* Activate test */
+            scriptPlugin.activateTest(configFile, scriptFile, logFile);
+          }
+        }
+      });
+
+    } else if (args.length > 0 && args[0].startsWith("-applet")) {
+
+      String tmpWebPath=null, tmpBuildPath=null, tmpEsbFirmware=null, tmpSkyFirmware=null;
+      for (int i = 1; i < args.length; i++) {
+        if (args[i].startsWith("-web=")) {
+          tmpWebPath = args[i].substring("-web=".length());
+        } else if (args[i].startsWith("-sky_firmware=")) {
+          tmpSkyFirmware = args[i].substring("-sky_firmware=".length());
+        } else if (args[i].startsWith("-esb_firmware=")) {
+          tmpEsbFirmware = args[i].substring("-esb_firmware=".length());
+        } else if (args[i].startsWith("-build=")) {
+          tmpBuildPath = args[i].substring("-build=".length());
+        }
+      }
+
+      // Applet start-up
+      final String webPath = tmpWebPath, buildPath = tmpBuildPath;
+      final String skyFirmware = tmpSkyFirmware, esbFirmware = tmpEsbFirmware;
+      javax.swing.SwingUtilities.invokeLater(new Runnable() {
+        public void run() {
+          JDesktopPane desktop = new JDesktopPane();
+          desktop.setDragMode(JDesktopPane.OUTLINE_DRAG_MODE);
+          applet = CoojaApplet.applet;
+          GUI gui = new GUI(desktop);
+
+          GUI.setExternalToolsSetting("PATH_CONTIKI_BUILD", buildPath);
+          GUI.setExternalToolsSetting("PATH_CONTIKI_WEB", webPath);
+
+          GUI.setExternalToolsSetting("SKY_FIRMWARE", skyFirmware);
+          GUI.setExternalToolsSetting("ESB_FIRMWARE", esbFirmware);
+
+          configureApplet(gui, false);
+        }
+      });
+
+    } else {
+
+      // Frame start-up
+      javax.swing.SwingUtilities.invokeLater(new Runnable() {
+        public void run() {
+          JDesktopPane desktop = new JDesktopPane();
+          desktop.setDragMode(JDesktopPane.OUTLINE_DRAG_MODE);
+          frame = new JFrame("COOJA Simulator");
+          GUI gui = new GUI(desktop);
+          configureFrame(gui, false);
+        }
+      });
+
+    }
+  }
+
+  /**
+   * Loads a simulation configuration from given file.
+   *
+   * When loading Contiki mote types, the libraries must be recompiled. User may
+   * change mote type settings at this point.
+   *
+   * @see #saveSimulationConfig(File)
+   * @param file
+   *          File to read
+   * @return New simulation or null if recompiling failed or aborted
+   * @throws UnsatisfiedLinkError
+   *           If associated libraries could not be loaded
+   */
+  public Simulation loadSimulationConfig(File file, boolean quick)
+  throws UnsatisfiedLinkError, SimulationCreationException {
+    this.currentConfigFile = file; /* Used to generate config relative paths */
+
+    try {
+      SAXBuilder builder = new SAXBuilder();
+      Document doc = builder.build(file);
+      Element root = doc.getRootElement();
+
+      return loadSimulationConfig(root, quick);
+    } catch (JDOMException e) {
+      logger.fatal("Config not wellformed: " + e.getMessage());
+      return null;
+    } catch (IOException e) {
+      logger.fatal("IOException: " + e.getMessage());
+      return null;
+    }
+  }
+
+  private Simulation loadSimulationConfig(StringReader stringReader, boolean quick)
+  throws SimulationCreationException {
+    try {
+      SAXBuilder builder = new SAXBuilder();
+      Document doc = builder.build(stringReader);
+      Element root = doc.getRootElement();
+
+      return loadSimulationConfig(root, quick);
+    } catch (JDOMException e) {
+      throw (SimulationCreationException) new SimulationCreationException(
+          "Configuration file not wellformed: " + e.getMessage()).initCause(e);
+    } catch (IOException e) {
+      throw (SimulationCreationException) new SimulationCreationException(
+          "IO Exception: " + e.getMessage()).initCause(e);
+    }
+  }
+
+  private Simulation loadSimulationConfig(Element root, boolean quick)
+  throws SimulationCreationException {
+    Simulation newSim = null;
+
+    try {
+      // Check that config file version is correct
+      if (!root.getName().equals("simconf")) {
+        logger.fatal("Not a valid COOJA simulation config!");
+        return null;
+      }
+
+      /* Verify project directories */
+      boolean projectsOk = verifyProjects(root.getChildren(), !quick);
+
+      /* GENERATE UNIQUE MOTE TYPE IDENTIFIERS */
+      root.detach();
+      String configString = new XMLOutputter().outputString(new Document(root));
+
+      /* Locate Contiki mote types in config */
+      Properties moteTypeIDMappings = new Properties();
+      String identifierExtraction = ContikiMoteType.class.getName() + "[\\s\\n]*<identifier>([^<]*)</identifier>";
+      Matcher matcher = Pattern.compile(identifierExtraction).matcher(configString);
+      while (matcher.find()) {
+        moteTypeIDMappings.setProperty(matcher.group(1), "");
+      }
+
+      /* Create old to new identifier mappings */
+      Enumeration<Object> existingIdentifiers = moteTypeIDMappings.keys();
+      while (existingIdentifiers.hasMoreElements()) {
+        String existingIdentifier = (String) existingIdentifiers.nextElement();
+        MoteType[] existingMoteTypes = null;
+        if (mySimulation != null) {
+          existingMoteTypes = mySimulation.getMoteTypes();
+        }
+        ArrayList<Object> reserved = new ArrayList<Object>();
+        reserved.addAll(moteTypeIDMappings.keySet());
+        reserved.addAll(moteTypeIDMappings.values());
+        String newID = ContikiMoteType.generateUniqueMoteTypeID(existingMoteTypes, reserved);
+        moteTypeIDMappings.setProperty(existingIdentifier, newID);
+      }
+
+      /* Create new config */
+      existingIdentifiers = moteTypeIDMappings.keys();
+      while (existingIdentifiers.hasMoreElements()) {
+        String existingIdentifier = (String) existingIdentifiers.nextElement();
+        configString = configString.replaceAll(
+            "<identifier>" + existingIdentifier + "</identifier>",
+            "<identifier>" + moteTypeIDMappings.get(existingIdentifier) + "</identifier>");
+        configString = configString.replaceAll(
+            "<motetype_identifier>" + existingIdentifier + "</motetype_identifier>",
+            "<motetype_identifier>" + moteTypeIDMappings.get(existingIdentifier) + "</motetype_identifier>");
+      }
+
+      /* Replace existing config */
+      root = new SAXBuilder().build(new StringReader(configString)).getRootElement();
+
+      // Create new simulation from config
+      for (Object element : root.getChildren()) {
+        if (((Element) element).getName().equals("simulation")) {
+          Collection<Element> config = ((Element) element).getChildren();
+          newSim = new Simulation(this);
+          System.gc();
+          boolean createdOK = newSim.setConfigXML(config, !quick);
+          if (!createdOK) {
+            logger.info("Simulation not loaded");
+            return null;
+          }
+        }
+      }
+
+      // Restart plugins from config
+      setPluginsConfigXML(root.getChildren(), newSim, !quick);
+
+    } catch (JDOMException e) {
+      throw (SimulationCreationException) new SimulationCreationException(
+          "Configuration file not wellformed: " + e.getMessage()).initCause(e);
+    } catch (IOException e) {
+      throw (SimulationCreationException) new SimulationCreationException(
+          "No access to configuration file: " + e.getMessage()).initCause(e);
+    } catch (MoteTypeCreationException e) {
+      throw (SimulationCreationException) new SimulationCreationException(
+          "Mote type creation error: " + e.getMessage()).initCause(e);
+    } catch (Exception e) {
+      throw (SimulationCreationException) new SimulationCreationException(
+          "Unknown error: " + e.getMessage()).initCause(e);
+    }
+
+    return newSim;
+  }
+
+  /**
+   * Saves current simulation configuration to given file and notifies
+   * observers.
+   *
+   * @see #loadSimulationConfig(File, boolean)
+   * @param file
+   *          File to write
+   */
+  public void saveSimulationConfig(File file) {
+    this.currentConfigFile = file; /* Used to generate config relative paths */
+
+    try {
+      // Create simulation config
+      Element root = new Element("simconf");
+
+      /* Store project directories meta data */
+      for (File project: currentProjectDirs) {
+        Element projectElement = new Element("project");
+        projectElement.addContent(project.getPath().replaceAll("\\\\", "/"));
+        root.addContent(projectElement);
+      }
+
+      Element simulationElement = new Element("simulation");
+      simulationElement.addContent(mySimulation.getConfigXML());
+      root.addContent(simulationElement);
+
+      // Create started plugins config
+      Collection<Element> pluginsConfig = getPluginsConfigXML();
+      if (pluginsConfig != null) {
+        root.addContent(pluginsConfig);
+      }
+
+      // Create and write to document
+      Document doc = new Document(root);
+      FileOutputStream out = new FileOutputStream(file);
+      XMLOutputter outputter = new XMLOutputter();
+      outputter.setFormat(Format.getPrettyFormat());
+      outputter.output(doc, out);
+      out.close();
+
+      logger.info("Saved to file: " + file.getAbsolutePath());
+    } catch (Exception e) {
+      logger.warn("Exception while saving simulation config: " + e);
+      e.printStackTrace();
+    }
+  }
+
+  /**
+   * Returns started plugins config.
+   *
+   * @return Config or null
+   */
+  public Collection<Element> getPluginsConfigXML() {
+    Vector<Element> config = new Vector<Element>();
+
+    // Loop through all started plugins
+    // (Only return config of non-GUI plugins)
+    Element pluginElement, pluginSubElement;
+    for (Plugin startedPlugin : startedPlugins) {
+      int pluginType = startedPlugin.getClass().getAnnotation(PluginType.class)
+          .value();
+
+      // Ignore GUI plugins
+      if (pluginType == PluginType.COOJA_PLUGIN
+          || pluginType == PluginType.COOJA_STANDARD_PLUGIN) {
+        continue;
+      }
+
+      pluginElement = new Element("plugin");
+      pluginElement.setText(startedPlugin.getClass().getName());
+
+      // Create mote argument config (if mote plugin)
+      if (pluginType == PluginType.MOTE_PLUGIN
+          && startedPlugin.getTag() != null) {
+        pluginSubElement = new Element("mote_arg");
+        Mote taggedMote = (Mote) startedPlugin.getTag();
+        for (int moteNr = 0; moteNr < mySimulation.getMotesCount(); moteNr++) {
+          if (mySimulation.getMote(moteNr) == taggedMote) {
+            pluginSubElement.setText(Integer.toString(moteNr));
+            pluginElement.addContent(pluginSubElement);
+            break;
+          }
+        }
+      }
+
+      // Create plugin specific configuration
+      Collection<Element> pluginXML = startedPlugin.getConfigXML();
+      if (pluginXML != null) {
+        pluginSubElement = new Element("plugin_config");
+        pluginSubElement.addContent(pluginXML);
+        pluginElement.addContent(pluginSubElement);
+      }
+
+      // If plugin is visualizer plugin, create visualization arguments
+      if (startedPlugin.getGUI() != null) {
+        JInternalFrame pluginFrame = startedPlugin.getGUI();
+
+        pluginSubElement = new Element("width");
+        pluginSubElement.setText("" + pluginFrame.getSize().width);
+        pluginElement.addContent(pluginSubElement);
+
+        pluginSubElement = new Element("z");
+        pluginSubElement.setText("" + getDesktopPane().getComponentZOrder(pluginFrame));
+        pluginElement.addContent(pluginSubElement);
+
+        pluginSubElement = new Element("height");
+        pluginSubElement.setText("" + pluginFrame.getSize().height);
+        pluginElement.addContent(pluginSubElement);
+
+        pluginSubElement = new Element("location_x");
+        pluginSubElement.setText("" + pluginFrame.getLocation().x);
+        pluginElement.addContent(pluginSubElement);
+
+        pluginSubElement = new Element("location_y");
+        pluginSubElement.setText("" + pluginFrame.getLocation().y);
+        pluginElement.addContent(pluginSubElement);
+
+        pluginSubElement = new Element("minimized");
+        pluginSubElement.setText(new Boolean(pluginFrame.isIcon()).toString());
+        pluginElement.addContent(pluginSubElement);
+      }
+
+      config.add(pluginElement);
+    }
+
+    return config;
+  }
+
+  public boolean verifyProjects(Collection<Element> configXML, boolean visAvailable) {
+    boolean allOk = true;
+
+    /* Match current projects against projects in simulation config */
+    for (final Element pluginElement : configXML.toArray(new Element[0])) {
+      if (pluginElement.getName().equals("project")) {
+        String project = pluginElement.getText();
+
+        boolean found = false;
+        for (File currentProject: currentProjectDirs) {
+          if (project.equals(currentProject.getPath().replaceAll("\\\\", "/"))) {
+            found = true;
+            break;
+          }
+        }
+
+        if (!found) {
+          logger.warn("Loaded simulation may depend on external project: '" + project + "'");
+          allOk = false;
+        }
+      }
+    }
+
+    return allOk;
+  }
+
+
+  /**
+   * Starts plugins with arguments in given config.
+   *
+   * @param configXML
+   *          Config XML elements
+   * @param simulation
+   *          Simulation on which to start plugins
+   * @return True if all plugins started, false otherwise
+   */
+  public boolean setPluginsConfigXML(Collection<Element> configXML,
+      Simulation simulation, boolean visAvailable) {
+
+    for (final Element pluginElement : configXML.toArray(new Element[0])) {
+      if (pluginElement.getName().equals("plugin")) {
+
+        // Read plugin class
+        String pluginClassName = pluginElement.getText().trim();
+
+        /* Backwards compatibility: old visualizers were replaced */
+        if (pluginClassName.equals("se.sics.cooja.plugins.VisUDGM") ||
+            pluginClassName.equals("se.sics.cooja.plugins.VisBattery") ||
+            pluginClassName.equals("se.sics.cooja.plugins.VisTraffic") ||
+            pluginClassName.equals("se.sics.cooja.plugins.VisUDGM")) {
+          logger.warn("Old simulation config detected: visualizers have been remade");
+          pluginClassName = "se.sics.cooja.plugins.Visualizer";
+        }
+
+        Class<? extends Plugin> pluginClass =
+          tryLoadClass(this, Plugin.class, pluginClassName);
+        if (pluginClass == null) {
+          logger.fatal("Could not load plugin class: " + pluginClassName);
+          return false;
+        }
+
+        // Parse plugin mote argument (if any)
+        Mote mote = null;
+        for (Element pluginSubElement : (List<Element>) pluginElement.getChildren()) {
+          if (pluginSubElement.getName().equals("mote_arg")) {
+            int moteNr = Integer.parseInt(pluginSubElement.getText());
+            if (moteNr >= 0 && moteNr < simulation.getMotesCount()) {
+              mote = simulation.getMote(moteNr);
+            }
+          }
+        }
+
+        /* Start plugin */
+        final Plugin startedPlugin = startPlugin(pluginClass, this, simulation, mote);
+        if (startedPlugin == null) {
+          logger.warn("Could not start plugin of class: " + pluginClass);
+          continue;
+        }
+
+        /* Apply plugin specific configuration */
+        for (Element pluginSubElement : (List<Element>) pluginElement.getChildren()) {
+          if (pluginSubElement.getName().equals("plugin_config")) {
+            startedPlugin.setConfigXML(pluginSubElement.getChildren(), visAvailable);
+          }
+        }
+
+        /* If Cooja not visualized, ignore window configuration */
+        if (startedPlugin.getGUI() == null) {
+          continue;
+        }
+
+        // If plugin is visualizer plugin, parse visualization arguments
+        new RunnableInEDT<Boolean>() {
+          public Boolean work() {
+            Dimension size = new Dimension(100, 100);
+            Point location = new Point(100, 100);
+
+            for (Element pluginSubElement : (List<Element>) pluginElement.getChildren()) {
+              if (pluginSubElement.getName().equals("width")) {
+                size.width = Integer.parseInt(pluginSubElement.getText());
+                startedPlugin.getGUI().setSize(size);
+              } else if (pluginSubElement.getName().equals("height")) {
+                size.height = Integer.parseInt(pluginSubElement.getText());
+                startedPlugin.getGUI().setSize(size);
+              } else if (pluginSubElement.getName().equals("z")) {
+                int zOrder = Integer.parseInt(pluginSubElement.getText());
+                // Save z order as temporary client property
+                startedPlugin.getGUI().putClientProperty("zorder", zOrder);
+              } else if (pluginSubElement.getName().equals("location_x")) {
+                location.x = Integer.parseInt(pluginSubElement.getText());
+                startedPlugin.getGUI().setLocation(location);
+              } else if (pluginSubElement.getName().equals("location_y")) {
+                location.y = Integer.parseInt(pluginSubElement.getText());
+                startedPlugin.getGUI().setLocation(location);
+              } else if (pluginSubElement.getName().equals("minimized")) {
+                try {
+                  startedPlugin.getGUI().setIcon(Boolean.parseBoolean(pluginSubElement.getText()));
+                } catch (PropertyVetoException e) { }
+              }
+            }
+
+            // For all visualized plugins, check if they have a zorder property
+            try {
+              for (JInternalFrame plugin : getDesktopPane().getAllFrames()) {
+                if (plugin.getClientProperty("zorder") != null) {
+                  getDesktopPane().setComponentZOrder(plugin,
+                      ((Integer) plugin.getClientProperty("zorder")).intValue());
+                  plugin.putClientProperty("zorder", null);
+                }
+              }
+            } catch (Exception e) { }
+
+            return true;
+          }
+        }.invokeAndWait();
+
+      }
+    }
+
+    return true;
+  }
+
+  public class ParseProjectsException extends Exception {
+    public ParseProjectsException(String message) {
+      super(message);
+    }
+  }
+
+  public class ClassLoaderCreationException extends Exception {
+    public ClassLoaderCreationException(String message) {
+      super(message);
+    }
+  }
+
+  public class SimulationCreationException extends Exception {
+    public SimulationCreationException(String message) {
+      super(message);
+    }
+  }
+
+  /**
+   * A simple error dialog with compilation output and stack trace.
+   *
+   * @param parentComponent
+   *          Parent component
+   * @param title
+   *          Title of error window
+   * @param exception
+   *          Exception causing window to be shown
+   * @param retryAvailable
+   *          If true, a retry option is presented
+   * @return Retry failed operation
+   */
+  public static boolean showErrorDialog(final Component parentComponent,
+      final String title, final Throwable exception, final boolean retryAvailable) {
+
+    return new RunnableInEDT<Boolean>() {
+      public Boolean work() {
+        JTabbedPane tabbedPane = new JTabbedPane();
+        final JDialog errorDialog;
+        if (parentComponent instanceof Dialog) {
+          errorDialog = new JDialog((Dialog) parentComponent, title, true);
+        } else if (parentComponent instanceof Frame) {
+          errorDialog = new JDialog((Frame) parentComponent, title, true);
+        } else {
+          errorDialog = new JDialog((Frame) null, title);
+        }
+        Box buttonBox = Box.createHorizontalBox();
+
+        if (exception != null) {
+          /* Compilation output */
+          MessageList compilationOutput = null;
+          if (exception instanceof MoteTypeCreationException
+              && ((MoteTypeCreationException) exception).hasCompilationOutput()) {
+            compilationOutput = ((MoteTypeCreationException) exception).getCompilationOutput();
+          } else if (exception.getCause() != null
+              && exception.getCause() instanceof MoteTypeCreationException
+              && ((MoteTypeCreationException) exception.getCause()).hasCompilationOutput()) {
+            compilationOutput = ((MoteTypeCreationException) exception.getCause()).getCompilationOutput();
+          }
+          if (compilationOutput != null) {
+            compilationOutput.addPopupMenuItem(null, true);
+            tabbedPane.addTab("Compilation output", null, new JScrollPane(compilationOutput), null);
+          }
+
+          /* Stack trace */
+          MessageList stackTrace = new MessageList();
+          PrintStream printStream = stackTrace.getInputStream(MessageList.NORMAL);
+          exception.printStackTrace(printStream);
+          stackTrace.addPopupMenuItem(null, true);
+          tabbedPane.addTab("Java stack trace", null, new JScrollPane(stackTrace), null);
+
+          /* Exception message */
+          buttonBox.add(Box.createHorizontalStrut(10));
+          buttonBox.add(new JLabel(exception.getMessage()));
+          buttonBox.add(Box.createHorizontalStrut(10));
+        }
+
+        buttonBox.add(Box.createHorizontalGlue());
+
+        if (retryAvailable) {
+          Action retryAction = new AbstractAction() {
+            public void actionPerformed(ActionEvent e) {
+              errorDialog.setTitle("-RETRY-");
+              errorDialog.dispose();
+            }
+          };
+          JButton retryButton = new JButton(retryAction);
+          retryButton.setText("Retry Ctrl+R");
+          buttonBox.add(retryButton);
+
+          InputMap inputMap = errorDialog.getRootPane().getInputMap(
+              JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+          inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_R, KeyEvent.CTRL_DOWN_MASK, false), "retry");
+          errorDialog.getRootPane().getActionMap().put("retry", retryAction);
+        }
+
+        AbstractAction closeAction = new AbstractAction(){
+          public void actionPerformed(ActionEvent e) {
+            errorDialog.dispose();
+          }
+        };
+
+        JButton closeButton = new JButton(closeAction);
+        closeButton.setText("Close");
+        buttonBox.add(closeButton);
+
+        InputMap inputMap = errorDialog.getRootPane().getInputMap(
+            JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0, false), "close");
+        errorDialog.getRootPane().getActionMap().put("close", closeAction);
+
+
+        errorDialog.getRootPane().setDefaultButton(closeButton);
+        errorDialog.getContentPane().add(BorderLayout.CENTER, tabbedPane);
+        errorDialog.getContentPane().add(BorderLayout.SOUTH, buttonBox);
+        errorDialog.setSize(700, 500);
+        errorDialog.setLocationRelativeTo(parentComponent);
+        errorDialog.setVisible(true); /* BLOCKS */
+
+        if (errorDialog.getTitle().equals("-RETRY-")) {
+          return true;
+        }
+        return false;
+
+      }
+    }.invokeAndWait();
+
+  }
+
+  /**
+   * Runs work method in event dispatcher thread.
+   * Worker method returns a value.
+   *
+   * @author Fredrik Osterlind
+   */
+  public static abstract class RunnableInEDT<T> {
+    private T val;
+
+    /**
+     * Work method to be implemented.
+     *
+     * @return Return value
+     */
+    public abstract T work();
+
+    /**
+     * Runs worker method in event dispatcher thread.
+     *
+     * @see #work()
+     * @return Worker method return value
+     */
+    public T invokeAndWait() {
+      if(java.awt.EventQueue.isDispatchThread()) {
+        return RunnableInEDT.this.work();
+      }
+
+      try {
+        java.awt.EventQueue.invokeAndWait(new Runnable() {
+          public void run() {
+            val = RunnableInEDT.this.work();
+          }
+        });
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      } catch (InvocationTargetException e) {
+        e.printStackTrace();
+      }
+
+      return val;
+    }
+  }
+
+  /**
+   * This method can be used by various different modules in the simulator to
+   * indicate for example that a mote has been selected. All mote highlight
+   * listeners will be notified. An example application of mote highlightinh is
+   * a simulator visualizer that highlights the mote.
+   *
+   * @see #addMoteHighlightObserver(Observer)
+   * @param m
+   *          Mote to highlight
+   */
+  public void signalMoteHighlight(Mote m) {
+    moteHighlightObservable.setChangedAndNotify(m);
+  }
+
+  /**
+   * Adds directed relation between given motes.
+   *
+   * @param source Source mote
+   * @param dest Destination mote
+   */
+  public void addMoteRelation(Mote source, Mote dest) {
+    if (source == null || dest == null) {
+      return;
+    }
+    removeMoteRelation(source, dest); /* Unique relations */
+    moteRelations.add(new MoteRelation(source, dest));
+    moteRelationObservable.setChangedAndNotify();
+  }
+
+  /**
+   * Removes the relations between given motes.
+   *
+   * @param source Source mote
+   * @param dest Destination mote
+   */
+  public void removeMoteRelation(Mote source, Mote dest) {
+    if (source == null || dest == null) {
+      return;
+    }
+    MoteRelation[] arr = getMoteRelations();
+    for (MoteRelation r: arr) {
+      if (r.source == source && r.dest == dest) {
+        moteRelations.remove(r);
+      }
+    }
+    moteRelationObservable.setChangedAndNotify();
+  }
+
+  /**
+   * @return All current mote relations.
+   *
+   * @see #addMoteRelationsObserver(Observer)
+   */
+  public MoteRelation[] getMoteRelations() {
+    MoteRelation[] arr = new MoteRelation[moteRelations.size()];
+    moteRelations.toArray(arr);
+    return arr;
+  }
+
+  /**
+   * Adds mote relation observer.
+   * Typically used by visualizer plugins.
+   *
+   * @param newObserver Observer
+   */
+  public void addMoteRelationsObserver(Observer newObserver) {
+    moteRelationObservable.addObserver(newObserver);
+  }
+
+  /**
+   * Removes mote relation observer.
+   * Typically used by visualizer plugins.
+   *
+   * @param observer Observer
+   */
+  public void deleteMoteRelationsObserver(Observer observer) {
+    moteRelationObservable.deleteObserver(observer);
+  }
+
+  public File createPortablePath(File file) {
+    try {
+      File contikiPath = new File(GUI.getExternalToolsSetting("PATH_CONTIKI", null));
+      String contikiRelative = contikiPath.getPath();
+      String contikiCanonical = contikiPath.getCanonicalPath();
+
+      String fileCanonical = file.getCanonicalPath();
+      if (!fileCanonical.startsWith(contikiCanonical)) {
+        /*logger.warn("Error when converting to Contiki relative path: file is not in Contiki: " + file.getAbsolutePath());*/
+        return createConfigPath(file);
+      }
+
+      /* Replace Contiki's canonical path with Contiki's relative path */
+      String newFilePath = fileCanonical.replace(contikiCanonical, contikiRelative);
+
+      File newFile = new File(newFilePath);
+      if (!newFile.exists()) {
+        /*logger.warn("Error when converting to Contiki relative path: new file does not exist: " + newFile.getAbsolutePath());*/
+        return createConfigPath(file);
+      }
+
+      logger.info("Generated Contiki relative path '" + file.getPath() + "' to '" + newFile.getPath() + "'");
+      return newFile;
+
+    } catch (IOException e1) {
+      /*logger.warn("Error when converting to Contiki relative path: " + e1.getMessage());*/
+    }
+
+    return createConfigPath(file);
+  }
+
+  public File restorePortablePath(File file) {
+    return restoreConfigPath(file);
+  }
+
+  public File currentConfigFile = null; /* Used to generate config relative paths */
+  public File createConfigPath(File file) {
+    if (currentConfigFile == null) {
+      return file;
+    }
+
+    try {
+      File configPath = currentConfigFile.getParentFile();
+      String configIdentifier = "[CONFIG_DIR]";
+      if (configPath == null) {
+        return file;
+      }
+      String configCanonical = configPath.getCanonicalPath();
+
+      String fileCanonical = file.getCanonicalPath();
+      if (!fileCanonical.startsWith(configCanonical)) {
+
+        /* SPECIAL CASE: Allow one parent directory */
+        configCanonical = configPath.getParentFile().getCanonicalPath();
+        configIdentifier += "/..";
+        if (!fileCanonical.startsWith(configCanonical)) {
+          /*logger.warn("Error when converting to config relative path: file not in config directory: " + file.getAbsolutePath());*/
+          return file;
+        }
+      }
+
+      /* Replace config's canonical path with config identifier */
+      String newFilePath = fileCanonical.replace(configCanonical, configIdentifier);
+
+      File newFile = new File(newFilePath);
+      logger.info("Generated config relative path: '" + file.getPath() + "' to '" + newFile.getPath() + "'");
+      return newFile;
+
+    } catch (IOException e1) {
+      /*logger.warn("Error when converting to config relative path: " + e1.getMessage());*/
+    }
+
+    return file;
+  }
+
+  public File restoreConfigPath(File file) {
+    if (currentConfigFile == null) {
+      return file;
+    }
+
+    File configPath = currentConfigFile.getParentFile();
+    if (configPath == null) {
+      return file;
+    }
+
+    String path = file.getPath();
+    if (!path.startsWith("[CONFIG_DIR]")) {
+      /*logger.info("Not config relative path: " + file.getAbsolutePath());*/
+      return file;
+    }
+
+    File newFile = new File(path.replace("[CONFIG_DIR]", configPath.getAbsolutePath()));
+    logger.info("Reverted config relative path: '" + path + "' to '" + newFile.getPath() + "'");
+    return newFile;
+  }
+
+  private static JProgressBar PROGRESS_BAR = null;
+  public static void setProgressMessage(String msg) {
+    if (PROGRESS_BAR != null && PROGRESS_BAR.isShowing()) {
+      PROGRESS_BAR.setString(msg);
+      PROGRESS_BAR.setStringPainted(true);
+    }
+  }
+
+}

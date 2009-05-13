@@ -1,0 +1,20 @@
+ifndef CONTIKI
+  $(error CONTIKI not defined! You must specify where CONTIKI resides!)
+endif
+
+CONTIKI_TARGET_DIRS = . dev
+CONTIKI_TARGET_MAIN = ${addprefix $(OBJECTDIR)/,contiki-main.o}
+
+CONTIKI_TARGET_SOURCEFILES = contiki-main.c clock.c leds.c leds-arch.c \
+                button-sensor.c pir-sensor.c vib-sensor.c xmem.c \
+                sensors.c irq.c cfs-posix.c cfs-posix-dir.c
+
+CONTIKI_SOURCEFILES += $(CONTIKI_TARGET_SOURCEFILES)
+
+.SUFFIXES:
+
+### Define the CPU directory
+CONTIKI_CPU=$(CONTIKI)/cpu/native
+include $(CONTIKI)/cpu/native/Makefile.native
+
+contiki-$(TARGET).a: ${addprefix $(OBJECTDIR)/,symbols.o}
