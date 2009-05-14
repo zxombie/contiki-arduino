@@ -216,6 +216,12 @@ mtarch_pstart(void)
   
 }
 /*--------------------------------------------------------------------------*/
+void
+mtarch_stop(struct mtarch_thread *thread)
+{
+
+}
+/*--------------------------------------------------------------------------*/
 int
 mtarch_stack_usage(struct mt_thread *t)
 {
