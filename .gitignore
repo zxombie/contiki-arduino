@@ -1,0 +1,5 @@
+*.a
+*.map
+*.hex
+*.arduino
+obj_*
