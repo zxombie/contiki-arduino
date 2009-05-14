@@ -48,6 +48,8 @@
 #include "dev/rs232_atmega1284.h"
 #elif defined (__AVR_AT90USB1287__)
 #include "dev/rs232_at90usb1287.h"
+#elif defined (__AVR_ATmega328P__)
+#include "dev/rs232_atmega328p.h"
 #else
 #error "Please implement a rs232 header for your MCU (or set the MCU type \
 in contiki-conf.h)."
