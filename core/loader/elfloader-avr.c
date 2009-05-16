@@ -32,6 +32,14 @@
  */
 
 #include <stdio.h>
+#include <avr/io.h>
+#if !defined(SPMEN) && defined(SELFPRGEN)
+/*
+ * Work around for avr-libc as it expects the bit to be
+ * called SPMEN however it was named SELFPRGEN in ATmega328p
+ */
+#define SPMEN SELFPRGEN
+#endif
 #include <avr/boot.h>
 #include <avr/pgmspace.h>
 #include <avr/interrupt.h>
@@ -95,7 +103,7 @@ elfloader_arch_allocate_ram(int size)
 void*
 elfloader_arch_allocate_rom(int size)
 {
-  return 0x8000;
+  return (void *)0x8000;
 }
 
 /*---------------------------------------------------------------------------*/
