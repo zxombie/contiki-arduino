@@ -48,7 +48,6 @@
 #define RS232_PRINTF_BUFFER_LENGTH 64
 #endif
 
-#if defined (__AVR_ATmega128__) || defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1281__)
 typedef struct {
   volatile uint8_t * UDR;
   volatile uint8_t * UBRRH;
@@ -59,6 +58,7 @@ typedef struct {
   int (* input_handler)(unsigned char);
 } rs232_t;
 
+#if defined (__AVR_ATmega128__) || defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1281__)
 static rs232_t rs232_ports[2] = {
   {   // UART0
     &UDR0,
@@ -80,6 +80,20 @@ static rs232_t rs232_ports[2] = {
     NULL
   }
 };
+#elif defined (__AVR_ATmega328P__)
+static rs232_t rs232_ports[1] = {
+  {   // UART0
+    &UDR0,
+    &UBRR0H,
+    &UBRR0L,
+    &UCSR0B,
+    &UCSR0C,
+    0,
+    NULL
+  }
+};
+#define USART0_TX_vect	USART_TX_vect
+#define USART0_RX_vect	USART_RX_vect
 #else
 #error Please define the UART registers for your MCU!
 #endif
@@ -102,6 +116,7 @@ ISR(USART0_RX_vect)
   }
 }
 
+#if defined (__AVR_ATmega128__) || defined(__AVR_ATmega1284P__) || defined(__AVR_ATmega1281__)
 /*---------------------------------------------------------------------------*/
 ISR(USART1_TX_vect)
 {
@@ -119,6 +134,7 @@ ISR(USART1_RX_vect)
     rs232_ports[RS232_PORT_1].input_handler(c);
   }
 }
+#endif
 
 /*---------------------------------------------------------------------------*/
 void
