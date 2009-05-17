@@ -1,5 +1,5 @@
 /* -*- C -*- */
-/* @(#)$Id: contiki-conf.h,v 1.41 2009/03/12 21:58:21 adamdunkels Exp $ */
+/* @(#)$Id: contiki-conf.h,v 1.52 2009/05/10 21:15:16 adamdunkels Exp $ */
 
 #ifndef CONTIKI_CONF_H
 #define CONTIKI_CONF_H
@@ -10,6 +10,10 @@
 
 #define PACKETBUF_CONF_ATTRS_INLINE 1
 
+#define QUEUEBUF_CONF_NUM          16
+
+#define IEEE802154_CONF_PANID       0xABCD
+
 #define SHELL_VARS_CONF_RAM_BEGIN 0x1100
 #define SHELL_VARS_CONF_RAM_END 0x2000
 
@@ -17,8 +21,11 @@
 #define DCOSYNCH_CONF_ENABLED 1
 #define DCOSYNCH_CONF_PERIOD 30
 
+#ifndef WITH_UIP6
 #define TIMESYNCH_CONF_ENABLED 1
 #define CC2420_CONF_TIMESTAMPS 1
+#define CC2420_CONF_CHECKSUM   0
+#endif /* !WITH_UIP6 */
 
 #define CFS_CONF_OFFSET_TYPE	long
 
@@ -26,6 +33,7 @@
 #define ENERGEST_CONF_ON 1
 
 #define HAVE_STDINT_H
+#define MSP430_MEMCPY_WORKAROUND 1
 #include "msp430def.h"
 
 #ifndef RF_CHANNEL
@@ -56,10 +64,10 @@
 /*#define PROCESS_CONF_FASTPOLL    4*/
 
 /* CPU target speed in Hz */
-#define F_CPU 2457600uL
+#define F_CPU 3900000uL /*2457600uL*/
 
 /* Our clock resolution, this is the same as Unix HZ. */
-#define CLOCK_CONF_SECOND 64
+#define CLOCK_CONF_SECOND 128
 
 #define BAUD2UBR(baud) ((F_CPU/baud))
 
@@ -70,6 +78,8 @@
 #define UIP_CONF_LL_802154              1
 #define UIP_CONF_LLH_LEN                0
 
+#define UIP_CONF_ROUTER			1
+
 #define UIP_CONF_IPV6                   1
 #define UIP_CONF_IPV6_QUEUE_PKT         1
 #define UIP_CONF_IPV6_CHECKS            1
@@ -79,29 +89,33 @@
 #define UIP_CONF_ND6_MAX_NEIGHBORS      4
 #define UIP_CONF_ND6_MAX_DEFROUTERS     2
 #define UIP_CONF_IP_FORWARD             0
+#define UIP_CONF_BUFFER_SIZE		256
 
 #define SICSLOWPAN_CONF_COMPRESSION_IPV6        0
 #define SICSLOWPAN_CONF_COMPRESSION_HC1         1
 #define SICSLOWPAN_CONF_COMPRESSION_HC01        2
-#define SICSLOWPAN_CONF_COMPRESSION             SICSLOWPAN_CONF_COMPRESSION_HC1
+#define SICSLOWPAN_CONF_COMPRESSION             SICSLOWPAN_CONF_COMPRESSION_HC01
 #define SICSLOWPAN_CONF_FRAG                    0
 #define SICSLOWPAN_CONF_CONVENTIONAL_MAC	1
+#define SICSLOWPAN_CONF_MAX_ADDR_CONTEXTS       2
 #else
 #define UIP_CONF_IP_FORWARD      1
+#define UIP_CONF_BUFFER_SIZE     108
 #endif /* WITH_UIP6 */
 
 #define UIP_CONF_ICMP_DEST_UNREACH 1
 
 #define UIP_CONF_DHCP_LIGHT
 #define UIP_CONF_LLH_LEN         0
-#define UIP_CONF_BUFFER_SIZE     108
-#define UIP_CONF_RECEIVE_WINDOW  (UIP_CONF_BUFFER_SIZE - 40)
+#define UIP_CONF_RECEIVE_WINDOW  60
+#define UIP_CONF_TCP_MSS         60
 #define UIP_CONF_MAX_CONNECTIONS 4
 #define UIP_CONF_MAX_LISTENPORTS 8
 #define UIP_CONF_UDP_CONNS       12
 #define UIP_CONF_FWCACHE_SIZE    30
 #define UIP_CONF_BROADCAST       1
 #define UIP_ARCH_IPCHKSUM        1
+#define UIP_CONF_UDP             1
 #define UIP_CONF_UDP_CHECKSUMS   1
 #define UIP_CONF_PINGADDRCONF    0
 #define UIP_CONF_LOGGING         0

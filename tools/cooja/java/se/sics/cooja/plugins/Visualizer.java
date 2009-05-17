@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: Visualizer.java,v 1.1 2009/03/24 15:46:18 fros4943 Exp $
+ * $Id: Visualizer.java,v 1.5 2009/04/20 16:16:44 fros4943 Exp $
  */
 
 package se.sics.cooja.plugins;
@@ -56,9 +56,9 @@ import org.jdom.Element;
 import se.sics.cooja.*;
 import se.sics.cooja.GUI.MoteRelation;
 import se.sics.cooja.interfaces.*;
-import se.sics.cooja.plugins.skins.BasicVisualizerSkin;
+import se.sics.cooja.plugins.skins.AddressVisualizerSkin;
+import se.sics.cooja.plugins.skins.IDVisualizerSkin;
 import se.sics.cooja.plugins.skins.LEDVisualizerSkin;
-import se.sics.cooja.plugins.skins.LogLEDVisualizerSkin;
 import se.sics.cooja.plugins.skins.LogVisualizerSkin;
 
 /**
@@ -72,7 +72,6 @@ import se.sics.cooja.plugins.skins.LogVisualizerSkin;
  * @see #registerMoteMenuAction(MoteMenuAction)
  * @see #registerSimulationMenuAction(SimulationMenuAction)
  * @see #registerVisualizerSkin(Class)
- * @see BasicVisualizerSkin
  * @see UDGMVisualizerSkin
  * @author Fredrik Osterlind
  */
@@ -85,6 +84,8 @@ public class Visualizer extends VisPlugin {
 
   private static final int CANVAS_BORDER_WIDTH = 25;
   public static final int MOTE_RADIUS = 8;
+
+  private static final Color[] DEFAULT_MOTE_COLORS = { Color.WHITE };
 
   private GUI gui = null;
   private Simulation simulation = null;
@@ -103,26 +104,25 @@ public class Visualizer extends VisPlugin {
   private Cursor moveCursor = new Cursor(Cursor.MOVE_CURSOR);
 
   /* Visualizer skins */
+  private final JButton skinButton = new JButton("Select visualizer skins");
   private static ArrayList<Class<? extends VisualizerSkin>> visualizerSkins =
     new ArrayList<Class<? extends VisualizerSkin>>();
   static {
     /* Register default visualizer skins */
-    registerVisualizerSkin(BasicVisualizerSkin.class);
+    registerVisualizerSkin(IDVisualizerSkin.class);
+    registerVisualizerSkin(AddressVisualizerSkin.class);
     registerVisualizerSkin(LogVisualizerSkin.class);
     registerVisualizerSkin(LEDVisualizerSkin.class);
-    registerVisualizerSkin(LogLEDVisualizerSkin.class);
   }
-  private JComboBox skinBox = null;
-  private VisualizerSkin currentSkin = null;
+  private ArrayList<VisualizerSkin> currentSkins = new ArrayList<VisualizerSkin>();
 
   /* Generic visualization */
   private Observer simObserver = null;
   private Observer posObserver = null;
   private Observer moteHighligtObserver = null;
+  private Vector<Mote> highlightedMotes = new Vector<Mote>();
+  private final static Color HIGHLIGHT_COLOR = Color.CYAN;
   private Observer moteRelationsObserver = null;
-  private Mote highlightedMote = null;
-  private Color highlightColor = Color.GRAY;
-  private Timer highlightTimer = null;
 
   /* Popup menu */
   public static interface SimulationMenuAction {
@@ -152,8 +152,9 @@ public class Visualizer extends VisPlugin {
       private static final long serialVersionUID = 1L;
       public void paintComponent(Graphics g) {
         super.paintComponent(g);
-        if (currentSkin != null) {
-          currentSkin.paintSkin(g);
+        paintSkinGeneric(g);
+        for (VisualizerSkin skin: currentSkins) {
+          skin.paintSkin(g);
         }
       }
     };
@@ -161,15 +162,74 @@ public class Visualizer extends VisPlugin {
     calculateTransformations();
 
     /* Skin selector */
-    skinBox = new JComboBox();
-    skinBox.addActionListener(new ActionListener() {
+    skinButton.addActionListener(new ActionListener() {
       public void actionPerformed(ActionEvent e) {
-        Class<? extends VisualizerSkin> skinClass = visualizerSkins.get(skinBox.getSelectedIndex());
-        selectSkin(skinClass);
+        Point mouse = MouseInfo.getPointerInfo().getLocation();
+        JCheckBoxMenuItem item;
+        JPopupMenu skinPopupMenu = new JPopupMenu();
+
+        for (Class<? extends VisualizerSkin> skinClass: visualizerSkins) {
+          String description = GUI.getDescriptionOf(skinClass);
+          item = new JCheckBoxMenuItem(description, false);
+          item.putClientProperty("skinclass", skinClass);
+
+          /* Select skin if active */
+          for (VisualizerSkin skin: currentSkins) {
+            if (skin.getClass() == skinClass) {
+              item.setSelected(true);
+              break;
+            }
+          }
+
+          item.addItemListener(new ItemListener() {
+            public void itemStateChanged(ItemEvent e) {
+              JCheckBoxMenuItem menuItem = ((JCheckBoxMenuItem)e.getItem());
+              if (menuItem == null) {
+                logger.fatal("No menu item");
+                return;
+              }
+
+              Class<VisualizerSkin> skinClass =
+                (Class<VisualizerSkin>) menuItem.getClientProperty("skinclass");
+              if (skinClass == null) {
+                logger.fatal("Unknown visualizer skin class: " + skinClass);
+                return;
+              }
+
+              if (menuItem.isSelected()) {
+                /* Create and activate new skin */
+                generateAndActivateSkin(skinClass);
+              } else {
+                /* Deactivate skin */
+                VisualizerSkin skinToDeactivate = null;
+                for (VisualizerSkin skin: currentSkins) {
+                  if (skin.getClass() == skinClass) {
+                    skinToDeactivate = skin;
+                    break;
+                  }
+                }
+                if (skinToDeactivate == null) {
+                  logger.fatal("Unknown visualizer skin to deactivate: " + skinClass);
+                  return;
+                }
+                skinToDeactivate.setInactive();
+                repaint();
+                currentSkins.remove(skinToDeactivate);
+                skinButton.setText("Select visualizer skins " +
+                    "(" + currentSkins.size() + "/" + visualizerSkins.size() + ")");
+              }
+            }
+          });
+
+          skinPopupMenu.add(item);
+        }
+
+        skinPopupMenu.setLocation(mouse);
+        skinPopupMenu.setInvoker(skinButton);
+        skinPopupMenu.setVisible(true);
       }
     });
-
-    this.add(BorderLayout.NORTH, skinBox);
+    this.add(BorderLayout.NORTH, skinButton);
     this.add(BorderLayout.CENTER, canvas);
 
     /* Observe simulation and mote positions */
@@ -203,33 +263,29 @@ public class Visualizer extends VisPlugin {
           return;
         }
 
-        if (highlightTimer != null && highlightTimer.isRunning()) {
-          highlightTimer.stop();
-        }
-
-        highlightTimer = new Timer(100, null);
-        highlightedMote = (Mote) obj;
-        highlightTimer.addActionListener(new ActionListener() {
+        final Timer timer = new Timer(100, null);
+        final Mote mote = (Mote) obj;
+        timer.addActionListener(new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             /* Count down */
-            if (highlightTimer.getDelay() < 90) {
-              highlightTimer.stop();
-              highlightedMote = null;
+            if (timer.getDelay() < 90) {
+              timer.stop();
+              highlightedMotes.remove(mote);
               repaint();
               return;
             }
 
-            /* Toggle colors */
-            if (highlightColor == Color.GRAY) {
-              highlightColor = Color.CYAN;
+            /* Toggle highlight state */
+            if (highlightedMotes.contains(mote)) {
+              highlightedMotes.remove(mote);
             } else {
-              highlightColor = Color.GRAY;
+              highlightedMotes.add(mote);
             }
-            highlightTimer.setDelay(highlightTimer.getDelay()-1);
+            timer.setDelay(timer.getDelay()-1);
             repaint();
           }
         });
-        highlightTimer.start();
+        timer.start();
       }
     });
 
@@ -406,71 +462,38 @@ public class Visualizer extends VisPlugin {
         new DropTarget(canvas, DnDConstants.ACTION_COPY_OR_MOVE, dTargetListener, true, null)
     );
 
-    repopulateSkinBox();
     this.setSize(300, 300);
     setLocation(gui.getDesktopPane().getWidth() - getWidth(), 0);
     setVisible(true);
   }
 
-  private void selectSkin(Class<? extends VisualizerSkin> skinClass) {
-
-    if (currentSkin != null &&
-        skinClass == currentSkin.getClass()) {
-      return;
-    }
-
-    /* Deactive current skin */
-    if (currentSkin != null) {
-      currentSkin.setInactive();
+  private void generateAndActivateSkin(Class<? extends VisualizerSkin> skinClass) {
+    for (VisualizerSkin skin: currentSkins) {
+      if (skinClass == skin.getClass()) {
+        logger.warn("Selected skin already active: " + skinClass);
+        return;
+      }
     }
 
     /* Create and activate new skin */
     try {
       VisualizerSkin newSkin = skinClass.newInstance();
       newSkin.setActive(Visualizer.this.simulation, Visualizer.this);
-      currentSkin = newSkin;
+      currentSkins.add(newSkin);
     } catch (InstantiationException e1) {
       e1.printStackTrace();
     } catch (IllegalAccessException e1) {
       e1.printStackTrace();
     }
 
-    /* Update skin selector box */
-    for (int i=0; i < skinBox.getItemCount(); i++) {
-      String desc = (String) skinBox.getItemAt(i);
-      if (desc.equals(GUI.getDescriptionOf(skinClass))) {
-        if (skinBox.getSelectedIndex() != i) {
-          skinBox.setSelectedIndex(i);
-        }
-        break;
-      }
-    }
-
+    skinButton.setText("Select visualizer skins " +
+        "(" + currentSkins.size() + "/" + visualizerSkins.size() + ")");
     repaint();
   }
 
-  public VisualizerSkin getCurrentSkin() {
-    return currentSkin;
-  }
-
-  protected void repopulateSkinBox() {
-    String selected = (String) skinBox.getSelectedItem();
-    int previousSelectionIndex = -1;
-
-    /* Repopulate box */
-    skinBox.removeAllItems();
-    for (Class<? extends VisualizerSkin> skin: visualizerSkins) {
-      String description = GUI.getDescriptionOf(skin);
-      skinBox.addItem(description);
-
-      if (selected != null && selected.equals(description)) {
-        previousSelectionIndex = skinBox.getItemCount();
-      }
-    }
-
-    if (previousSelectionIndex >= 0) {
-      skinBox.setSelectedIndex(previousSelectionIndex);
-    }
+  public VisualizerSkin[] getCurrentSkins() {
+    VisualizerSkin[] skins = new VisualizerSkin[currentSkins.size()];
+    return currentSkins.toArray(skins);
   }
 
   /**
@@ -505,7 +528,7 @@ public class Visualizer extends VisPlugin {
     moteMenuActions.add(menuAction);
   }
 
-  public void unregisterMoteMenuAction(Class<? extends SimulationMenuAction> menuAction) {
+  public void unregisterMoteMenuAction(Class<? extends MoteMenuAction> menuAction) {
     moteMenuActions.remove(menuAction);
   }
 
@@ -682,15 +705,27 @@ public class Visualizer extends VisPlugin {
   public void paintSkinGeneric(Graphics g) {
     Mote[] allMotes = simulation.getMotes();
     for (Mote mote: allMotes) {
-      Color moteColors[] = currentSkin.getColorOf(mote);
+
+      /* Use the first skin's non-null mote colors */
+      Color moteColors[] = null;
+      for (VisualizerSkin skin: currentSkins) {
+        moteColors = skin.getColorOf(mote);
+        if (moteColors != null) {
+          break;
+        }
+      }
+      if (moteColors == null) {
+        moteColors = DEFAULT_MOTE_COLORS;
+      }
+
       Position motePos = mote.getInterfaces().getPosition();
 
       Point pixelCoord = transformPositionToPixel(motePos);
       int x = pixelCoord.x;
       int y = pixelCoord.y;
 
-      if (mote == highlightedMote) {
-        g.setColor(highlightColor);
+      if (!highlightedMotes.isEmpty() && highlightedMotes.contains(mote)) {
+        g.setColor(HIGHLIGHT_COLOR);
         g.fillOval(x - MOTE_RADIUS, y - MOTE_RADIUS, 2 * MOTE_RADIUS,
             2 * MOTE_RADIUS);
       } else if (mote == moteToMove) {
@@ -862,9 +897,10 @@ public class Visualizer extends VisPlugin {
   }
 
   public void closePlugin() {
-    if (currentSkin != null) {
-      currentSkin.setInactive();
+    for (VisualizerSkin skin: currentSkins) {
+      skin.setInactive();
     }
+    currentSkins.clear();
     if (moteHighligtObserver != null) {
       gui.deleteMoteHighlightObserver(moteHighligtObserver);
     }
@@ -896,9 +932,11 @@ public class Visualizer extends VisPlugin {
     Vector<Element> config = new Vector<Element>();
     Element element;
 
-    element = new Element("skin");
-    element.setText(GUI.getDescriptionOf(currentSkin.getClass()));
-    config.add(element);
+    for (VisualizerSkin skin: currentSkins) {
+      element = new Element("skin");
+      element.setText(GUI.getDescriptionOf(skin.getClass()));
+      config.add(element);
+    }
 
     return config;
   }
@@ -909,9 +947,13 @@ public class Visualizer extends VisPlugin {
         String wanted = element.getText();
         for (Class<? extends VisualizerSkin> skinClass: visualizerSkins) {
           if (wanted.equals(GUI.getDescriptionOf(skinClass))) {
-            selectSkin(skinClass);
+            generateAndActivateSkin(skinClass);
+            wanted = null;
             break;
           }
+        }
+        if (wanted != null) {
+          logger.warn("Could not load skin: " + element.getText());
         }
       }
     }

@@ -28,7 +28,7 @@
  *
  * This file is part of the Contiki operating system.
  *
- * $Id: uip-over-mesh.c,v 1.11 2009/03/12 21:58:20 adamdunkels Exp $
+ * $Id: uip-over-mesh.c,v 1.14 2009/05/10 21:08:01 adamdunkels Exp $
  */
 
 /**
@@ -80,7 +80,20 @@ static uip_ipaddr_t netaddr, netmask;
 static void
 recv_data(struct unicast_conn *c, rimeaddr_t *from)
 {
+  struct route_entry *e;
+  rimeaddr_t source;
+    
   uip_len = packetbuf_copyto(&uip_buf[UIP_LLH_LEN]);
+
+  source.u8[0] = BUF->srcipaddr.u8[2];
+  source.u8[1] = BUF->srcipaddr.u8[3];
+
+  e = route_lookup(from);
+  if(e == NULL) {
+    route_add(&source, from, 10, 0);
+  } else {
+    route_refresh(e);
+  }
 
   /*  uip_len = hc_inflate(&uip_buf[UIP_LLH_LEN], uip_len);*/
 
@@ -112,6 +125,7 @@ new_route(struct route_discovery_conn *c, rimeaddr_t *to)
 
     rt = route_lookup(&queued_receiver);
     if(rt) {
+      route_decay(rt);
       send_data(&queued_receiver);
     }
   }
@@ -174,7 +188,7 @@ void
 uip_over_mesh_init(u16_t channels)
 {
 
-  printf("Our address is %d.%d (%d.%d.%d.%d)\n",
+  PRINTF("Our address is %d.%d (%d.%d.%d.%d)\n",
 	 rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1],
 	 uip_hostaddr.u8[0], uip_hostaddr.u8[1],
 	 uip_hostaddr.u8[2], uip_hostaddr.u8[3]);
@@ -185,8 +199,8 @@ uip_over_mesh_init(u16_t channels)
   trickle_open(&gateway_announce_conn, CLOCK_SECOND * 4, channels + 3,
 	       &trickle_call);
 
-  /*  tcpip_set_forwarding(1);*/
-
+  /* Set lifetime to 10 seconds for non-refreshed routes. */
+  route_set_lifetime(30);
 }
 /*---------------------------------------------------------------------------*/
 u8_t
@@ -233,7 +247,14 @@ uip_over_mesh_send(void)
   /*  uip_len = hc_compress(&uip_buf[UIP_LLH_LEN], uip_len);*/
   
   packetbuf_copyfrom(&uip_buf[UIP_LLH_LEN], uip_len);
-  
+
+  /* Send TCP data with the PACKETBUF_ATTR_ERELIABLE set so that
+     an underlying power-saving MAC layer knows that it should be
+     waiting for an ACK. */
+  if(BUF->proto == UIP_PROTO_TCP) {
+    packetbuf_set_attr(PACKETBUF_ATTR_ERELIABLE, 1);
+  }
+
   rt = route_lookup(&receiver);
   if(rt == NULL) {
     PRINTF("uIP over mesh no route to %d.%d\n", receiver.u8[0], receiver.u8[1]);
@@ -245,6 +266,7 @@ uip_over_mesh_send(void)
       route_discovery_discover(&route_discovery, &receiver, ROUTE_TIMEOUT);
     }
   } else {
+    route_decay(rt);
     send_data(&rt->nexthop);
   }
   return UIP_FW_OK;
