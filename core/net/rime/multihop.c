@@ -33,7 +33,7 @@
  *
  * This file is part of the Contiki operating system.
  *
- * $Id: multihop.c,v 1.4 2009/03/24 07:15:04 adamdunkels Exp $
+ * $Id: multihop.c,v 1.6 2009/05/10 21:10:02 adamdunkels Exp $
  */
 
 /**
@@ -70,25 +70,31 @@ data_packet_received(struct unicast_conn *uc, rimeaddr_t *from)
 {
   struct multihop_conn *c = (struct multihop_conn *)uc;
   rimeaddr_t *nexthop;
+  rimeaddr_t sender, receiver;
+
+  /* Copy the packet attributes to avoid them being overwritten or
+     cleared by an application program that uses the packet buffer for
+     its own needs. */
+  rimeaddr_copy(&sender, packetbuf_addr(PACKETBUF_ADDR_ESENDER));
+  rimeaddr_copy(&receiver, packetbuf_addr(PACKETBUF_ADDR_ERECEIVER));
 
   PRINTF("data_packet_received from %d.%d towards %d.%d len %d\n",
 	 from->u8[0], from->u8[1],
-	 msg.dest.u8[0], msg.dest.u8[1],
+	 packetbuf_addr(PACKETBUF_ADDR_ERECEIVER)->u8[0],
+	 packetbuf_addr(PACKETBUF_ADDR_ERECEIVER)->u8[1],
 	 packetbuf_datalen());
 
   if(rimeaddr_cmp(packetbuf_addr(PACKETBUF_ADDR_ERECEIVER),
 				 &rimeaddr_node_addr)) {
     PRINTF("for us!\n");
     if(c->cb->recv) {
-      c->cb->recv(c, packetbuf_addr(PACKETBUF_ADDR_ESENDER), from,
+      c->cb->recv(c, &sender, from,
 		  packetbuf_attr(PACKETBUF_ATTR_HOPS));
     }
   } else {
     nexthop = NULL;
     if(c->cb->forward) {
-      nexthop = c->cb->forward(c,
-			       packetbuf_addr(PACKETBUF_ADDR_ESENDER),
-			       packetbuf_addr(PACKETBUF_ADDR_ERECEIVER),
+      nexthop = c->cb->forward(c, &sender, &receiver,
 			       from, packetbuf_attr(PACKETBUF_ATTR_HOPS));
 
       packetbuf_set_attr(PACKETBUF_ATTR_HOPS,

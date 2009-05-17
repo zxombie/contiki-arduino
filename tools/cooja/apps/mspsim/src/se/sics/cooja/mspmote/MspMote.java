@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: MspMote.java,v 1.24 2009/03/13 16:24:29 fros4943 Exp $
+ * $Id: MspMote.java,v 1.28 2009/04/29 20:04:56 fros4943 Exp $
  */
 
 package se.sics.cooja.mspmote;
@@ -47,6 +47,7 @@ import se.sics.cooja.MoteInterfaceHandler;
 import se.sics.cooja.MoteMemory;
 import se.sics.cooja.MoteType;
 import se.sics.cooja.Simulation;
+import se.sics.cooja.interfaces.IPAddress;
 import se.sics.cooja.mspmote.interfaces.TR1001Radio;
 import se.sics.mspsim.cli.CommandHandler;
 import se.sics.mspsim.cli.LineListener;
@@ -65,8 +66,8 @@ import se.sics.mspsim.util.MapTable;
 public abstract class MspMote implements Mote {
   private static Logger logger = Logger.getLogger(MspMote.class);
 
-  /* 2.4576 MHz according to Contiki's speed sync loop*/
-  public static long NR_CYCLES_PER_MSEC = 2458;
+  /* 3.900 MHz according to Contiki's speed sync loop*/
+  public static long NR_CYCLES_PER_MSEC = 3900;
 
   /* Cycle counter */
   public long cycleCounter = 0;
@@ -394,11 +395,15 @@ public abstract class MspMote implements Mote {
         myMoteInterfaceHandler = createMoteInterfaceHandler();
 
       } else if (name.equals("interface_config")) {
+        String intfClass = element.getText().trim();
+        if (intfClass.equals("se.sics.cooja.mspmote.interfaces.MspIPAddress")) {
+          intfClass = IPAddress.class.getName();
+        }
         Class<? extends MoteInterface> moteInterfaceClass = simulation.getGUI().tryLoadClass(
-              this, MoteInterface.class, element.getText().trim());
+              this, MoteInterface.class, intfClass);
 
         if (moteInterfaceClass == null) {
-          logger.fatal("Could not load mote interface class: " + element.getText().trim());
+          logger.fatal("Could not load mote interface class: " + intfClass);
           return false;
         }
 

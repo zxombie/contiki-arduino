@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: AbstractRadioMedium.java,v 1.7 2009/02/24 15:12:22 fros4943 Exp $
+ * $Id: AbstractRadioMedium.java,v 1.9 2009/04/20 16:26:02 fros4943 Exp $
  */
 
 package se.sics.cooja.radiomediums;
@@ -58,6 +58,11 @@ public abstract class AbstractRadioMedium extends RadioMedium {
   private boolean isTickObserver = false;
 
   private Simulation simulation = null;
+
+  /* Book-keeping */
+  public int COUNTER_TX = 0;
+  public int COUNTER_RX = 0;
+  public int COUNTER_INTERFERED = 0;
 
   public class RadioMediumObservable extends Observable {
     public void setRadioMediumChanged() {
@@ -93,9 +98,8 @@ public abstract class AbstractRadioMedium extends RadioMedium {
    * @return All active connections
    */
   public RadioConnection[] getActiveConnections() {
-    RadioConnection[] active = new RadioConnection[activeConnections.size()];
-    activeConnections.toArray(active);
-    return active;
+    /* NOTE: toArray([0]) creates array and handles synchronization */
+    return activeConnections.toArray(new RadioConnection[0]);
   }
 
   /**
@@ -243,7 +247,9 @@ public abstract class AbstractRadioMedium extends RadioMedium {
         } else {
           activeConnections.remove(connection);
           finishedConnections.add(connection);
+          COUNTER_TX++;
           for (Radio dstRadio : connection.getDestinations()) {
+            COUNTER_RX++;
             if (connection.getDestinationDelay(dstRadio) == 0) {
               dstRadio.signalReceptionEnd();
             } else {
@@ -262,6 +268,7 @@ public abstract class AbstractRadioMedium extends RadioMedium {
             }
           }
           for (Radio dstRadio : connection.getInterfered()) {
+            COUNTER_INTERFERED++;
             dstRadio.signalReceptionEnd();
           }
         }

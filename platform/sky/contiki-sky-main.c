@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * @(#)$Id: contiki-sky-main.c,v 1.49 2009/03/17 15:56:33 adamdunkels Exp $
+ * @(#)$Id: contiki-sky-main.c,v 1.55 2009/05/12 17:32:49 adamdunkels Exp $
  */
 
 #include <signal.h>
@@ -52,9 +52,21 @@
 
 #include "lib/random.h"
 
+#include "net/mac/frame802154.h"
 #include "net/mac/nullmac.h"
 #include "net/mac/xmac.h"
 #include "net/mac/lpp.h"
+
+#if WITH_UIP6
+#include "net/sicslowpan.h"
+#include "net/uip-netif.h"
+#include "net/mac/sicslowmac.h"
+#if UIP_CONF_ROUTER
+#include "net/routing/rimeroute.h"
+#include "net/rime/rime-udp.h"
+#endif /* UIP_CONF_ROUTER*/
+#endif /* WITH_UIP6 */
+
 #include "net/rime.h"
 
 #include "node-id.h"
@@ -71,11 +83,6 @@ static struct timer mgt_timer;
 
 #ifndef WITH_UIP
 #define WITH_UIP 0
-#endif
-
-#if WITH_UIP6
-#include "net/sicslowpan.h"
-#include "net/uip-netif.h"
 #endif
 
 #if WITH_UIP
@@ -115,9 +122,6 @@ force_float_inclusion()
 /*---------------------------------------------------------------------------*/
 void uip_log(char *msg) { puts(msg); }
 /*---------------------------------------------------------------------------*/
-/* Radio stuff in network byte order. */
-static u16_t panId = 0x2024;
-
 #ifndef RF_CHANNEL
 #define RF_CHANNEL              26
 #endif
@@ -173,11 +177,15 @@ set_gateway(void)
 {
   if(!is_gateway) {
     leds_on(LEDS_RED);
-    printf("%d.%d: making myself the IP network gateway.\n",
+    printf("%d.%d: making myself the IP network gateway.\n\n",
 	   rimeaddr_node_addr.u8[0], rimeaddr_node_addr.u8[1]);
+    printf("IPv4 address of the gateway: %d.%d.%d.%d\n\n",
+	   uip_ipaddr_to_quad(&uip_hostaddr));
     uip_over_mesh_set_gateway(&rimeaddr_node_addr);
     uip_over_mesh_make_announced_gateway();
     is_gateway = 1;
+
+    rime_mac->off(1);
   }
 }
 #endif /* WITH_UIP */
@@ -201,6 +209,11 @@ main(int argc, char **argv)
   leds_on(LEDS_GREEN);
   ds2411_init();
 
+  /* XXX hack: Fix it so that the 802.15.4 MAC address is compatible
+     with an Ethernet MAC address - byte 0 (byte 2 in the DS ID)
+     cannot be odd. */
+  ds2411_id[2] &= 0xfe;
+  
   leds_on(LEDS_BLUE);
   xmem_init();
 
@@ -210,9 +223,12 @@ main(int argc, char **argv)
    * Hardware initialization done!
    */
 
+  
   /* Restore node id if such has been stored in external mem */
   node_id_restore();
 
+  random_init(ds2411_id[0] + node_id);
+  
   leds_off(LEDS_BLUE);
   /*
    * Initialize Contiki and our processes.
@@ -222,7 +238,7 @@ main(int argc, char **argv)
   process_start(&sensors_process, NULL);
 
   /*
-   * Initialize light and humitity/temp sensors.
+   * Initialize light and humidity/temp sensors.
    */
   sensors_light_init();
   battery_sensor.activate();
@@ -231,15 +247,8 @@ main(int argc, char **argv)
   ctimer_init();
 
   cc2420_init();
-  cc2420_set_pan_addr(panId, 0 /*XXX*/, ds2411_id);
+  cc2420_set_pan_addr(IEEE802154_PANID, 0 /*XXX*/, ds2411_id);
   cc2420_set_channel(RF_CHANNEL);
-#if WITH_NULLMAC
-  rime_init(nullmac_init(&cc2420_driver));
-#else
-  rime_init(xmac_init(&cc2420_driver));
-#endif
-
-  random_init(ds2411_id[0] + node_id);
 
   printf(CONTIKI_VERSION_STRING " started. ");
   if(node_id > 0) {
@@ -251,12 +260,23 @@ main(int argc, char **argv)
   printf("MAC %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x",
 	 ds2411_id[0], ds2411_id[1], ds2411_id[2], ds2411_id[3],
 	 ds2411_id[4], ds2411_id[5], ds2411_id[6], ds2411_id[7]);
-  printf(" %s\n", rime_mac->name);
 
 #if WITH_UIP6
   memcpy(&uip_lladdr.addr, ds2411_id, sizeof(uip_lladdr.addr));
-  sicslowpan_init(rime_mac);
+  sicslowpan_init(sicslowmac_init(&cc2420_driver));
   process_start(&tcpip_process, NULL);
+  printf(" %s channel %u\n", sicslowmac_driver.name, RF_CHANNEL);
+#if UIP_CONF_ROUTER
+  rime_init(rime_udp_init(NULL));
+  uip_router_register(&rimeroute);
+#endif /* UIP_CONF_ROUTER */
+#else /* WITH_UIP6 */
+#if WITH_NULLMAC
+  rime_init(nullmac_init(&cc2420_driver));
+#else /* WITH_NULLMAC */
+  rime_init(xmac_init(&cc2420_driver));
+#endif /* WITH_NULLMAC */
+  printf(" %s channel %u\n", rime_mac->name, RF_CHANNEL);
 #endif /* WITH_UIP6 */
 
 #if !WITH_UIP && !WITH_UIP6
@@ -270,8 +290,10 @@ main(int argc, char **argv)
 
   leds_off(LEDS_GREEN);
 
+#if TIMESYNCH_CONF_ENABLED
   timesynch_init();
   timesynch_set_authority_level(rimeaddr_node_addr.u8[0]);
+#endif /* TIMESYNCH_CONF_ENABLED */
 
 #if WITH_UIP
   process_start(&tcpip_process, NULL);
@@ -364,7 +386,6 @@ main(int argc, char **argv)
 					      woken up by an
 					      interrupt that sets
 					      the wake up flag. */
-
 
       /* We get the current processing time for interrupts that was
 	 done during the LPM and store it for next time around.  */

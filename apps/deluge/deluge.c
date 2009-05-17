@@ -28,7 +28,7 @@
  *
  * This file is part of the Contiki operating system.
  *
- * $Id: deluge.c,v 1.5 2009/03/12 21:58:20 adamdunkels Exp $
+ * $Id: deluge.c,v 1.7 2009/05/15 23:04:15 nvt-se Exp $
  */
 
 /**
@@ -60,7 +60,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DEBUG	1
+#define DEBUG	0
 #if DEBUG
 #include <stdio.h>
 #define PRINTF(...)                             \
@@ -183,23 +183,14 @@ init_page(struct deluge_object *obj, int pagenum, int have)
 static int
 file_size(const char *file)
 {
-  int fd, r, size;
-  char buf[32];
+  int fd, size;
 
   fd = cfs_open(file, CFS_READ);
   if(fd < 0) {
     return -1;
   }
 
-  size = 0;
-  do {
-    r = cfs_read(fd, buf, sizeof(buf));
-    if(r < 0) {
-      cfs_close(fd);
-      return -1;
-    }
-    size += r;
-  } while(r > 0);
+  size = cfs_seek(fd, 0, CFS_SEEK_END);
 
   cfs_close(fd);
   return size;
@@ -373,13 +364,15 @@ send_page(struct deluge_object *obj, unsigned pagenum)
 
   /* Divide the page into packets and send them one at a time. */
   for(cp = buf; cp + S_PKT <= (unsigned char *)&buf[S_PAGE]; cp += S_PKT) {
-    pkt.crc = checksum(cp, S_PKT);
-    memcpy(pkt.payload, cp, S_PKT);
-    packetbuf_copyfrom((uint8_t *)&pkt, sizeof (pkt));
-    broadcast_send(&deluge_broadcast);
-
-    obj->tx_set &= ~(1 << pkt.packetnum++);
+    if(obj->tx_set & (1 << pkt.packetnum)) {
+      pkt.crc = checksum(cp, S_PKT);
+      memcpy(pkt.payload, cp, S_PKT);
+      packetbuf_copyfrom((uint8_t *)&pkt, sizeof (pkt));
+      broadcast_send(&deluge_broadcast);
+    }
+    pkt.packetnum++;
   }
+  obj->tx_set = 0;
 }
 
 static void

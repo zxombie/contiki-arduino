@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: SkyByteRadio.java,v 1.8 2009/03/09 17:14:35 fros4943 Exp $
+ * $Id: SkyByteRadio.java,v 1.11 2009/05/04 15:34:00 fros4943 Exp $
  */
 
 package se.sics.cooja.mspmote.interfaces;
@@ -49,6 +49,8 @@ import se.sics.mspsim.chip.CC2420;
 import se.sics.mspsim.chip.RFListener;
 import se.sics.mspsim.chip.CC2420.RadioState;
 import se.sics.mspsim.chip.CC2420.StateListener;
+import se.sics.mspsim.core.Chip;
+import se.sics.mspsim.core.OperatingModeListener;
 
 /**
  * CC2420 to COOJA wrapper.
@@ -73,8 +75,6 @@ public class SkyByteRadio extends Radio implements CustomDataRadio {
 
   private boolean isReceiving = false;
 //  private boolean hasFailedReception = false;
-
-  private boolean radioOn = true;
 
   private CC2420RadioByte lastOutgoingByte = null;
 
@@ -141,6 +141,19 @@ public class SkyByteRadio extends Radio implements CustomDataRadio {
         }
       }
     });
+
+    cc2420.addOperatingModeListener(new OperatingModeListener() {
+      public void modeChanged(Chip source, int mode) {
+        if (isReceiverOn()) {
+          lastEvent = RadioEvent.HW_ON;
+        } else {
+          lastEvent = RadioEvent.HW_OFF;
+        }
+        lastEventTime = SkyByteRadio.this.mote.getSimulation().getSimulationTime();
+        setChanged();
+        notifyObservers();
+      }
+    });
   }
 
   /* Packet radio support */
@@ -193,7 +206,7 @@ public class SkyByteRadio extends Radio implements CustomDataRadio {
     lastIncomingPacket = packet;
 
     /* TODO Receiving all bytes at the same time ok? */
-    byte[] packetData = CC2420RadioPacketConverter.fromCoojaToCC2420((COOJARadioPacket) packet);
+    byte[] packetData = CC2420RadioPacketConverter.fromCoojaToCC2420(packet);
 
     if (cc2420.getState() != CC2420.RadioState.RX_SFD_SEARCH) {
       /*logger.info("Radio is not currently active. Let's wait some...");*/
@@ -363,7 +376,7 @@ public class SkyByteRadio extends Radio implements CustomDataRadio {
           statusLabel.setText("transmitting");
         } else if (isReceiving()) {
           statusLabel.setText("receiving");
-        } else if (radioOn /* mode != CC2420.MODE_TXRX_OFF */) {
+        } else if (isReceiverOn()) {
           statusLabel.setText("listening for traffic");
         } else {
           statusLabel.setText("HW off");
@@ -409,5 +422,9 @@ public class SkyByteRadio extends Radio implements CustomDataRadio {
   }
 
   public void setConfigXML(Collection<Element> configXML, boolean visAvailable) {
+  }
+
+  public boolean isReceiverOn() {
+    return mote.skyNode.radio.getMode() != CC2420.MODE_TXRX_OFF;
   }
 }

@@ -26,18 +26,21 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: UDGMVisualizerSkin.java,v 1.2 2009/03/24 16:07:44 fros4943 Exp $
+ * $Id: UDGMVisualizerSkin.java,v 1.6 2009/04/20 18:09:54 fros4943 Exp $
  */
 
 package se.sics.cooja.plugins.skins;
 
 import java.awt.Color;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Point;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.util.Observable;
 import java.util.Observer;
+
+import javax.swing.JLabel;
 import javax.swing.JSpinner;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.event.ChangeEvent;
@@ -49,7 +52,6 @@ import se.sics.cooja.ClassDescription;
 import se.sics.cooja.Mote;
 import se.sics.cooja.RadioConnection;
 import se.sics.cooja.Simulation;
-import se.sics.cooja.contikimote.interfaces.ContikiRadio;
 import se.sics.cooja.interfaces.Position;
 import se.sics.cooja.interfaces.Radio;
 import se.sics.cooja.plugins.Visualizer;
@@ -63,7 +65,7 @@ import se.sics.cooja.radiomediums.UDGM;
  * Allows a user to change the collective TX/interference ranges,
  * and the TX/RX success ratio.
  *
- * Transmitting motes are painted blue.
+ * Transmitting motes are painted blue. XXXXXXXX
  * Receiving motes are painted green.
  * Interfered motes are painted red.
  * Motes without radios are painted gray.
@@ -76,10 +78,16 @@ import se.sics.cooja.radiomediums.UDGM;
 public class UDGMVisualizerSkin implements VisualizerSkin {
   private static Logger logger = Logger.getLogger(UDGMVisualizerSkin.class);
 
+  private static final boolean DRAW_ARROWS = true;
+  
   private Simulation simulation = null;
   private Visualizer visualizer = null;
   private UDGM radioMedium = null;
   private Observer radioMediumObserver;
+
+  private JLabel txCounter = null;
+  private JLabel rxCounter = null;
+  private JLabel interferedCounter = null;
 
   private JSpinner txRangeSpinner = null;
   private JSpinner interferenceRangeSpinner = null;
@@ -112,6 +120,10 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
   };
 
   public void setActive(Simulation simulation, Visualizer vis) {
+    if (!(simulation.getRadioMedium() instanceof UDGM)) {
+      logger.fatal("Cannot activate UDGM skin for unknown radio medium: " + simulation.getRadioMedium());
+      return;
+    }
     this.simulation = simulation;
     this.visualizer = vis;
     this.radioMedium = (UDGM) simulation.getRadioMedium();
@@ -207,6 +219,13 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
     visualizer.registerSimulationMenuAction(SuccessRatioMenuAction.class);
 
     /* Add (currently invisible) spinners */
+    txCounter = new JLabel("TX: " + radioMedium.COUNTER_TX);
+    rxCounter = new JLabel("RX: " + radioMedium.COUNTER_RX);
+    interferedCounter = new JLabel("INT: " +  + radioMedium.COUNTER_INTERFERED);
+    visualizer.getCurrentCanvas().add(txCounter);
+    visualizer.getCurrentCanvas().add(rxCounter);
+    visualizer.getCurrentCanvas().add(interferedCounter);
+
     visualizer.getCurrentCanvas().add(txRangeSpinner);
     visualizer.getCurrentCanvas().add(interferenceRangeSpinner);
     visualizer.getCurrentCanvas().add(successRatioTxSpinner);
@@ -215,12 +234,27 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
     /* Start observing radio medium */
     radioMedium.addRadioMediumObserver(radioMediumObserver = new Observer() {
       public void update(Observable obs, Object obj) {
+        if (txCounter != null) {
+          txCounter.setText("TX: " + radioMedium.COUNTER_TX);
+        }
+        if (rxCounter != null) {
+          rxCounter.setText("RX: " + radioMedium.COUNTER_RX);
+        }
+        if (interferedCounter != null) {
+          interferedCounter.setText("INT: " +  + radioMedium.COUNTER_INTERFERED);
+        }
+
         visualizer.repaint();
       }
     });
   }
 
   public void setInactive() {
+    if (simulation == null) {
+      /* Skin was never activated */
+      return;
+    }
+
     /* Remove mouse listener */
     visualizer.getCurrentCanvas().removeMouseListener(selectMoteMouseListener);
 
@@ -228,6 +262,10 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
     radioMedium.deleteRadioMediumObserver(radioMediumObserver);
     radioMediumObserver = null;
     radioMedium = null;
+
+    visualizer.getCurrentCanvas().remove(txCounter);
+    visualizer.getCurrentCanvas().remove(rxCounter);
+    visualizer.getCurrentCanvas().remove(interferedCounter);
 
     /* Remove spinners */
     visualizer.getCurrentCanvas().remove(txRangeSpinner);
@@ -241,20 +279,25 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
   }
 
   public Color[] getColorOf(Mote mote) {
-    Radio moteRadio = mote.getInterfaces().getRadio();
-    if (moteRadio == null) {
-      return new Color[] { Color.BLACK };
+    if (simulation == null) {
+      /* Skin was never activated */
+      return null;
     }
 
     if (mote.getState() == Mote.State.DEAD) {
-      return new Color[] { Color.BLACK };
+      return null;
+    }
+
+    Radio moteRadio = mote.getInterfaces().getRadio();
+    if (moteRadio == null) {
+      return null;
     }
 
     if (selectedMote != null && mote == selectedMote) {
       return new Color[] { Color.CYAN };
     }
 
-    if (moteRadio instanceof ContikiRadio && !((ContikiRadio) moteRadio).isOn()) {
+    if (!moteRadio.isReceiverOn()) {
       return new Color[] { Color.GRAY };
     }
 
@@ -270,12 +313,30 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
       return new Color[] { Color.GREEN };
     }
 
-    return new Color[] { Color.WHITE };
+    return null;
   }
 
+  private static Color COLOR_INTERFERENCE = new Color(
+      Color.DARK_GRAY.getRed(),
+      Color.DARK_GRAY.getGreen(),
+      Color.DARK_GRAY.getBlue(),
+      100
+  );
+  private static Color COLOR_TX = new Color(
+      Color.GREEN.getRed(),
+      Color.GREEN.getGreen(),
+      Color.GREEN.getBlue(),
+      100
+  );
   public void paintSkin(Graphics g) {
+    if (simulation == null) {
+      /* Skin was never activated */
+      return;
+    }
+
     /* Paint transmission and interference range for select mote */
     if (selectedMote != null) {
+      Graphics2D g2 = (Graphics2D) g;
       Position motePos = selectedMote.getInterfaces().getPosition();
 
       Point pixelCoord = visualizer.transformPositionToPixel(motePos);
@@ -304,7 +365,7 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
         translatedTransmission.y = Math.abs(translatedTransmission.y - translatedZero.y);
 
         /* Interference range */
-        g.setColor(Color.DARK_GRAY);
+        g.setColor(COLOR_INTERFERENCE);
         g.fillOval(
             x - translatedInterference.x,
             y - translatedInterference.y,
@@ -312,7 +373,7 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
             2 * translatedInterference.y);
 
         /* Transmission range */
-        g.setColor(Color.GREEN);
+        g.setColor(COLOR_TX);
         g.fillOval(
             x - translatedTransmission.x,
             y - translatedTransmission.y,
@@ -321,25 +382,33 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
       }
     }
 
-    /* Skin generic visualization */
-    visualizer.paintSkinGeneric(g);
-
     /* Paint active connections in black */
     RadioConnection[] conns = radioMedium.getActiveConnections();
     if (conns != null) {
       g.setColor(Color.BLACK);
       for (RadioConnection conn : conns) {
-        Point sourcePoint = visualizer.transformPositionToPixel(conn.getSource().getPosition());
+        Radio source = conn.getSource();
+        Point sourcePoint = visualizer.transformPositionToPixel(source.getPosition());
         for (Radio destRadio : conn.getDestinations()) {
           Position destPos = destRadio.getPosition();
           Point destPoint = visualizer.transformPositionToPixel(destPos);
           g.drawLine(sourcePoint.x, sourcePoint.y, destPoint.x, destPoint.y);
+
+          /* Draw arrows */
+          if (DRAW_ARROWS) {
+            Point centerPoint = new Point(
+                destPoint.x/2 + sourcePoint.x/2,
+                destPoint.y/2 + sourcePoint.y/2
+            );
+            int startAngle = (int) (-180 * Math.atan2(destPoint.y - sourcePoint.y, destPoint.x - sourcePoint.x)/Math.PI - 90);
+            g.drawArc(centerPoint.x-5, centerPoint.y-5, 10, 10, startAngle, 180);
+          }
         }
       }
     }
 
     /* Paint past connections in gray */
-    conns = radioMedium.getLastTickConnections();
+    /*conns = radioMedium.getLastTickConnections();
     if (conns != null) {
       g.setColor(Color.GRAY);
       for (RadioConnection conn : conns) {
@@ -350,7 +419,7 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
           g.drawLine(sourcePoint.x, sourcePoint.y, destPoint.x, destPoint.y);
         }
       }
-    }
+    }*/
   }
 
   public static class RangeMenuAction implements SimulationMenuAction {
@@ -363,10 +432,14 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
     }
 
     public void doAction(Visualizer visualizer, Simulation simulation) {
-      UDGMVisualizerSkin skin = (UDGMVisualizerSkin) visualizer.getCurrentSkin();
-      skin.txRangeSpinner.setVisible(true);
-      skin.interferenceRangeSpinner.setVisible(true);
-      visualizer.repaint();
+      VisualizerSkin[] skins = visualizer.getCurrentSkins();
+      for (VisualizerSkin skin: skins) {
+        if (skin instanceof UDGMVisualizerSkin) {
+          ((UDGMVisualizerSkin)skin).txRangeSpinner.setVisible(true);
+          ((UDGMVisualizerSkin)skin).interferenceRangeSpinner.setVisible(true);
+          visualizer.repaint();
+        }
+      }
     }
   };
 
@@ -380,11 +453,18 @@ public class UDGMVisualizerSkin implements VisualizerSkin {
     }
 
     public void doAction(Visualizer visualizer, Simulation simulation) {
-      UDGMVisualizerSkin skin = (UDGMVisualizerSkin) visualizer.getCurrentSkin();
-      skin.successRatioTxSpinner.setVisible(true);
-      skin.successRatioRxSpinner.setVisible(true);
-      visualizer.repaint();
+      VisualizerSkin[] skins = visualizer.getCurrentSkins();
+      for (VisualizerSkin skin: skins) {
+        if (skin instanceof UDGMVisualizerSkin) {
+          ((UDGMVisualizerSkin)skin).successRatioTxSpinner.setVisible(true);
+          ((UDGMVisualizerSkin)skin).successRatioRxSpinner.setVisible(true);
+          visualizer.repaint();
+        }
+      }
     }
   };
 
+  public Visualizer getVisualizer() {
+    return visualizer;
+  }
 }

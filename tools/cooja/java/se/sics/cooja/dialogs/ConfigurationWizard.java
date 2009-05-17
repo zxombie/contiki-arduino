@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: ConfigurationWizard.java,v 1.2 2009/03/11 08:44:32 fros4943 Exp $
+ * $Id: ConfigurationWizard.java,v 1.4 2009/04/20 16:09:10 fros4943 Exp $
  */
 
 package se.sics.cooja.dialogs;
@@ -56,6 +56,7 @@ import se.sics.cooja.GUI;
 import se.sics.cooja.SectionMoteMemory;
 import se.sics.cooja.MoteType.MoteTypeCreationException;
 import se.sics.cooja.contikimote.ContikiMoteType;
+import se.sics.cooja.contikimote.ContikiMoteType.CommunicationStack;
 
 public class ConfigurationWizard extends JDialog {
   private static final long serialVersionUID = 1L;
@@ -573,7 +574,8 @@ public class ConfigurationWizard extends JDialog {
           new File(cLibraryName + ".c"),
           new File(cLibraryName + ContikiMoteType.mapSuffix),
           new File(cLibraryName + ContikiMoteType.librarySuffix),
-          new File(cLibraryName + ContikiMoteType.dependSuffix)
+          new File(cLibraryName + ContikiMoteType.dependSuffix),
+          CommunicationStack.RIME
       );
     } catch (Exception e) {
       testOutput.addMessage("### Error: Compiler environment failed", MessageList.ERROR);
@@ -587,7 +589,6 @@ public class ConfigurationWizard extends JDialog {
     testOutput.addMessage("### Compiling C library source: " + cLibrarySourceFile.getName());
     try {
       String contikiPath = GUI.getExternalToolsSetting("PATH_CONTIKI").replaceAll("\\\\", "/");
-      System.out.println(" CURR DIR: " + new File(".").getAbsolutePath());
       CompileContiki.compile(
           "make " +
           "-f " + contikiPath + "/Makefile.include " +

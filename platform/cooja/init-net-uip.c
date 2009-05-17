@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Swedish Institute of Computer Science.
+ * Copyright (c) 2009, Swedish Institute of Computer Science.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,30 +28,79 @@
  *
  * This file is part of the Contiki operating system.
  *
- * $Id: init-net-uip.c,v 1.2 2007/05/21 14:52:15 fros4943 Exp $
+ * $Id: init-net-uip.c,v 1.4 2009/04/23 09:15:51 fros4943 Exp $
  */
 
 #include "contiki.h"
+#include <stdio.h>
+#include <string.h>
+
+#include "net/rime.h"
 #include "net/uip.h"
 #include "net/uip-fw.h"
 #include "net/uip-fw-drv.h"
-#include "net/radio-uip.h"
+
+#include "node-id.h"
 #include "dev/cooja-radio.h"
 
-/* Default network interface */
-static struct uip_fw_netif radioif =
-  {UIP_FW_NETIF(0,0,0,0, 0,0,0,0, radio_uip_send)};
+#include "dev/slip.h"
 
+#define UIP_IP_BUF ((struct uip_ip_hdr *)&uip_buf[UIP_LLH_LEN])
+
+/*---------------------------------------------------------------------------*/
+static u8_t
+sender(void)
+{
+  return cooja_radio.send((char*)UIP_IP_BUF, uip_len);
+}
+/*---------------------------------------------------------------------------*/
+static void
+receiver(const struct radio_driver *d)
+{
+  uip_len = d->read((char*)UIP_IP_BUF, UIP_BUFSIZE - UIP_LLH_LEN);
+  tcpip_input();
+}
+/*---------------------------------------------------------------------------*/
+/* Only using a single network interface */
+static struct uip_fw_netif wsn_if =
+  {UIP_FW_NETIF(172,16,0,0, 255,255,0,0, sender)};
+static struct uip_fw_netif slip_if =
+  {UIP_FW_NETIF(0,0,0,0, 0,0,0,0, slip_send)};
+/*---------------------------------------------------------------------------*/
 void
 init_net(void)
 {
-  uip_init();
-  uip_fw_init();
-  
+  int i;
+  uip_ipaddr_t hostaddr, netmask;
+  rimeaddr_t rimeaddr;
+
+  /* Init Rime */
+  ctimer_init();
+  rimeaddr.u8[0] = node_id & 0xff;
+  rimeaddr.u8[1] = node_id >> 8;
+  rimeaddr_set_node_addr(&rimeaddr);
+  printf("Rime started with address: ");
+  for(i = 0; i < sizeof(rimeaddr_node_addr.u8) - 1; i++) {
+    printf("%d.", rimeaddr_node_addr.u8[i]);
+  }
+  printf("%d\n", rimeaddr_node_addr.u8[i]);
+
+  /* Init uIPv4 */
   process_start(&tcpip_process, NULL);
   process_start(&uip_fw_process, NULL);
-  
-  uip_fw_default(&radioif);
-  
-  radio_uip_init(&cooja_driver);
+  process_start(&slip_process, NULL);
+  uip_init();
+  uip_fw_init();
+  uip_ipaddr(&hostaddr, 172, 16, rimeaddr_node_addr.u8[1], rimeaddr_node_addr.u8[0]);
+  uip_ipaddr(&netmask, 255,255,0,0);
+  uip_sethostaddr(&hostaddr);
+  uip_setnetmask(&netmask);
+  uip_fw_register(&wsn_if);
+  uip_fw_default(&slip_if);
+  rs232_set_input(slip_input_byte);
+  printf("uIP started with IP address: %d.%d.%d.%d\n", uip_ipaddr_to_quad(&hostaddr));
+
+  /* uIPv4 <-> COOJA's packet radio */
+  /*tcpip_set_outputfunc(sender);*/
+  cooja_radio.set_receive_function(receiver);
 }

@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: AbstractCompileDialog.java,v 1.5 2009/03/12 13:20:58 fros4943 Exp $
+ * $Id: AbstractCompileDialog.java,v 1.7 2009/04/01 14:01:45 fros4943 Exp $
  */
 
 package se.sics.cooja.dialogs;
@@ -66,7 +66,7 @@ public abstract class AbstractCompileDialog extends JDialog {
   private static final long serialVersionUID = 1L;
   private static Logger logger = Logger.getLogger(AbstractCompileDialog.class);
 
-  protected final static Dimension LABEL_DIMENSION = new Dimension(170, 15);
+  protected final static Dimension LABEL_DIMENSION = new Dimension(170, 25);
 
   private static File lastFile = null;
 
@@ -150,6 +150,13 @@ public abstract class AbstractCompileDialog extends JDialog {
     browseButton.addActionListener(new ActionListener() {
       public void actionPerformed(ActionEvent e) {
         JFileChooser fc = new JFileChooser();
+
+        if (lastFile == null) {
+          String path = GUI.getExternalToolsSetting("COMPILE_LAST_FILE", null);
+          if (path != null) {
+            lastFile = new File(path);
+          }
+        }
 
         /* Last file/directory */
         if (lastFile != null) {
@@ -340,6 +347,23 @@ public abstract class AbstractCompileDialog extends JDialog {
       setSize(newSize);
     }
 
+    /* Recompile at Ctrl+R */
+    Action recompileAction = new AbstractAction() {
+      public void actionPerformed(ActionEvent e) {
+        try {
+          setDialogState(DialogState.AWAITING_COMPILATION);
+          if (nextButton.getText().equals("Compile")) {
+            compileContiki();
+          }
+        } catch (Exception e1) {
+          e1.printStackTrace();
+        }
+      }
+    };
+    InputMap inputMap = getRootPane().getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_R, KeyEvent.CTRL_DOWN_MASK, false), "recompile");
+    getRootPane().getActionMap().put("recompile", recompileAction);
+
     pack();
     setLocationRelativeTo(parent);
   }
@@ -471,6 +495,8 @@ public abstract class AbstractCompileDialog extends JDialog {
     }
 
     lastFile = file;
+    GUI.setExternalToolsSetting("COMPILE_LAST_FILE", lastFile.getAbsolutePath());
+
     if (file.getName().endsWith(".c")) {
       setDialogState(DialogState.SELECTED_SOURCE);
       return;

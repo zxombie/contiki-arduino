@@ -1,4 +1,4 @@
-# $Id: Makefile.sky,v 1.21 2009/02/04 17:51:49 fros4943 Exp $
+# $Id: Makefile.sky,v 1.25 2009/04/29 11:42:56 adamdunkels Exp $
 
 
 ARCH=msp430.c leds.c watchdog.c light.c spi.c ds2411.c \
@@ -33,6 +33,7 @@ ifdef OS
     MOTELIST = $(CONTIKI)/tools/sky/motelist-windows
     TMOTE_BSL=$(if $(wildcard $(CONTIKI)/tools/sky/tmote-bsl.exe),1,0)
     ifeq ($(TMOTE_BSL), 1)
+      NUMPAR = 1
       BSL =  $(CONTIKI)/tools/sky/tmote-bsl
       MOTES = $(shell $(MOTELIST) | grep COM | \
          cut -f 4 -d \  )
@@ -54,8 +55,15 @@ ifndef MOTELIST
   USBDEVPREFIX=
   SERIALDUMP = $(CONTIKI)/tools/sky/serialdump-linux
   MOTELIST = $(CONTIKI)/tools/sky/motelist-linux
-  BSL = $(CONTIKI)/tools/sky/msp430-bsl-linux --telosb
-  BSL_FILETYPE = -I
+  TMOTE_BSL=$(if $(wildcard $(CONTIKI)/tools/sky/tmote-bsl-linux),1,0)
+  ifeq ($(TMOTE_BSL), 1)
+    PATH := $(PATH):$(CONTIKI)/tools/sky
+    BSL =  $(CONTIKI)/tools/sky/tmote-bsl-linux
+    NUMPAR = 1
+  else
+    BSL = $(CONTIKI)/tools/sky/msp430-bsl-linux --telosb
+    BSL_FILETYPE = -I
+  endif
   MOTES = $(shell $(MOTELIST) 2>&- | grep USB | \
      cut -f 4 -d \  | \
      perl -ne 'print $$1 . " " if(m-(/dev/\w+)-);')
@@ -74,25 +82,25 @@ sky-motes:
 sky-upload: sky-reset
 	$(MAKE) -j $(NUMPAR) sky-upload-sequence
 
-sky-upload-sequence:	$(foreach PORT, $(MOTES), $(PORT).sky-u)
+sky-upload-sequence:	$(foreach PORT, $(MOTES), sky-u.$(subst /,-,$(PORT)))
 	@echo Done
 
 sky-reset:
 	$(MAKE) -k -j $(NUMPAR) sky-reset-sequence
 
-sky-reset-sequence:	$(foreach PORT, $(MOTES), $(PORT).sky-r)
+sky-reset-sequence:	$(foreach PORT, $(MOTES), sky-r.$(subst /,-,$(PORT)))
 	@echo Done
 
-%.sky-u:
-	@echo +++++ Erasing $(basename $@) ; \
-	$(BSL) -c $(basename $@) -e && sleep 2 ; \
-	echo +++++ Programming $(basename $@) ; \
-	$(BSL) -c $(basename $@) $(BSL_FILETYPE) -p $(IHEXFILE) && sleep 2 ; \
-	echo +++++ Resetting $(basename $@) ; \
-	$(BSL) -c $(basename $@) -r
+sky-u.%:
+	@echo +++++ Erasing $(subst -,/,$*); \
+	$(BSL) -c $(subst -,/,$*) -e && sleep 2 ; \
+	echo +++++ Programming $(subst -,/,$*) ; \
+	$(BSL) -c $(subst -,/,$*) $(BSL_FILETYPE) -p $(IHEXFILE) && sleep 2 ; \
+	echo +++++ Resetting $(subst -,/,$*) ; \
+	$(BSL) -c $(subst -,/,$*) -r
 
-%.sky-r:
-	$(BSL) -c $(basename $@) -r
+sky-r.%:
+	$(BSL) -c $(subst -,/,$*) -r
 
 sizeplot:
 	msp430-size $(OBJECTDIR)/*.o | $(CONTIKI)/tools/sky/check-size > size-data

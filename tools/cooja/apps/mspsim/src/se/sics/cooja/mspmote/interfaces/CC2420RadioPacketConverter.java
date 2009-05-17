@@ -26,14 +26,15 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: CC2420RadioPacketConverter.java,v 1.6 2009/03/09 16:05:11 fros4943 Exp $
+ * $Id: CC2420RadioPacketConverter.java,v 1.9 2009/05/06 12:59:12 fros4943 Exp $
  */
 
 package se.sics.cooja.mspmote.interfaces;
 
 import org.apache.log4j.Logger;
 
-import se.sics.cooja.COOJARadioPacket;
+import se.sics.cooja.ConvertedRadioPacket;
+import se.sics.cooja.RadioPacket;
 
 /**
  * Converts radio packets between X-MAC/CC24240/Sky and COOJA.
@@ -51,7 +52,7 @@ public class CC2420RadioPacketConverter {
   public static final boolean WITH_TIMESTAMP = true;
   public static final boolean WITH_FOOTER = true;
 
-  public static byte[] fromCoojaToCC2420(COOJARadioPacket packet) {
+  public static byte[] fromCoojaToCC2420(RadioPacket packet) {
     byte cc2420Data[] = new byte[6+127];
     int pos = 0;
     byte packetData[] = packet.getPacketData();
@@ -132,9 +133,10 @@ public class CC2420RadioPacketConverter {
     return cc2420DataStripped;
   }
 
-  public static COOJARadioPacket fromCC2420ToCooja(byte[] data) {
+  public static ConvertedRadioPacket fromCC2420ToCooja(byte[] data) {
     int pos = 0;
     int len; /* Payload */
+    int originalLen;
 
     /* Use some CC2420/MAC specific field such as X-MAC response */
 
@@ -150,6 +152,7 @@ public class CC2420RadioPacketConverter {
 
     /* 1 byte length */
     len = data[pos];
+    originalLen = len;
     pos += 1;
 
     /* (IGNORED) 4 byte X-MAC */
@@ -176,9 +179,15 @@ public class CC2420RadioPacketConverter {
     /*logger.info("Payload pos: " + pos);
     logger.info("Payload length: " + len);*/
 
-    byte coojaData[] = new byte[len];
-    System.arraycopy(data, pos, coojaData, 0, len);
-    return new COOJARadioPacket(coojaData);
+    byte originalData[] = new byte[originalLen];
+    System.arraycopy(data, 6, originalData, 0, originalLen);
+    if (len < 0) {
+      logger.fatal("Negative length radio packet. Conversion failed.");
+      return new ConvertedRadioPacket(new byte[0], originalData);
+    }
+    byte convertedData[] = new byte[len];
+    System.arraycopy(data, pos, convertedData, 0, len);
+    return new ConvertedRadioPacket(convertedData, originalData);
   }
 
 }

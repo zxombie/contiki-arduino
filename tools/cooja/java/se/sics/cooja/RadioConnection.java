@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: RadioConnection.java,v 1.7 2009/03/03 13:42:45 fros4943 Exp $
+ * $Id: RadioConnection.java,v 1.9 2009/05/04 15:34:28 fros4943 Exp $
  */
 
 package se.sics.cooja;
@@ -52,6 +52,8 @@ public class RadioConnection {
 
   private Vector<Radio> interfered = new Vector<Radio>();
 
+  private long startTime;
+
   /**
    * Creates a new radio connection with given source and no destinations.
    *
@@ -60,6 +62,11 @@ public class RadioConnection {
    */
   public RadioConnection(Radio sourceRadio) {
     this.source = sourceRadio;
+    startTime = sourceRadio.getMote().getSimulation().getSimulationTime();
+  }
+
+  public long getStartTime() {
+    return startTime;
   }
 
   /**
@@ -111,7 +118,9 @@ public class RadioConnection {
    */
   public void removeDestination(Radio radio) {
     int idx = destinations.indexOf(radio);
-
+    if (idx < 0) {
+      return; 
+    }
     destinations.remove(idx);
     destinationDelays.remove(idx);
   }
