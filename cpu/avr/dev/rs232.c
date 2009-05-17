@@ -222,6 +222,8 @@ static FILE rs232_stdout = FDEV_SETUP_STREAM(rs232_stdout_putchar,
 
 int rs232_stdout_putchar(char c, FILE *stream)
 {
+  if (c == '\n')
+    rs232_send(stdout_rs232_port, '\r');
   rs232_send (stdout_rs232_port, c);
   return 0;
 }
