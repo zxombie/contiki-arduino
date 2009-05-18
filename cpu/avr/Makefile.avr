@@ -124,5 +124,7 @@ endif
 %.u: %.hex
 	avrdude ${AVRDUDE_OPTIONS} -P ${AVRDUDE_PORT} -c ${AVRDUDE_PROGRAMMER} -p ${MCU} -U flash:w:$<
 
+contiki-$(TARGET).a: ${addprefix $(OBJECTDIR)/,symbols.o}
+
 symbols.c:
 	@${CONTIKI}/tools/make-empty-symbols
