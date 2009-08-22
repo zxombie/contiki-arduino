@@ -28,7 +28,7 @@
  *
  * This file is part of the Contiki operating system.
  *
- * $Id: xmac.c,v 1.33 2009/05/06 15:05:28 adamdunkels Exp $
+ * $Id: xmac.c,v 1.35 2009/08/20 18:59:17 adamdunkels Exp $
  */
 
 /**
@@ -57,7 +57,7 @@
 #define WITH_CHANNEL_CHECK           0    /* Seems to work badly when enabled */
 #define WITH_TIMESYNCH               0
 #define WITH_QUEUE                   0
-#define WITH_ACK_OPTIMIZATION        1
+#define WITH_ACK_OPTIMIZATION        0
 #define WITH_RANDOM_WAIT_BEFORE_SEND 0
 
 struct announcement_data {
@@ -614,6 +614,12 @@ read_packet(void)
 	   asleep. */
 	off();
 
+	/* Set sender and receiver packet attributes */
+ 	if(!rimeaddr_cmp(&hdr->receiver, &rimeaddr_null)) {
+	  packetbuf_set_addr(PACKETBUF_ADDR_RECEIVER, &hdr->receiver);
+	}
+	packetbuf_set_addr(PACKETBUF_ADDR_SENDER, &hdr->sender);
+	
 #if XMAC_CONF_COMPOWER
 	/* Accumulate the power consumption for the packet reception. */
 	compower_accumulate(&current_packet);
@@ -745,6 +751,7 @@ turn_off(int keep_radio_on)
 const struct mac_driver xmac_driver =
   {
     "X-MAC",
+    xmac_init,
     qsend_packet,
     read_packet,
     set_receive_function,

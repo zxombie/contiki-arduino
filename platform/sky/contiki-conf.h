@@ -1,12 +1,14 @@
 /* -*- C -*- */
-/* @(#)$Id: contiki-conf.h,v 1.52 2009/05/10 21:15:16 adamdunkels Exp $ */
+/* @(#)$Id: contiki-conf.h,v 1.57 2009/06/29 09:54:39 nifi Exp $ */
 
 #ifndef CONTIKI_CONF_H
 #define CONTIKI_CONF_H
 
+/* Specifies the default MAC driver */
+#define MAC_CONF_DRIVER xmac_driver
+
 #define XMAC_CONF_COMPOWER 1
 #define XMAC_CONF_ANNOUNCEMENTS 1
-#define RIME_CONF_NO_POLITE_ANNOUCEMENTS 1
 
 #define PACKETBUF_CONF_ATTRS_INLINE 1
 
@@ -25,6 +27,9 @@
 #define TIMESYNCH_CONF_ENABLED 1
 #define CC2420_CONF_TIMESTAMPS 1
 #define CC2420_CONF_CHECKSUM   0
+#define RIME_CONF_NO_POLITE_ANNOUCEMENTS 0
+#else
+#define RIME_CONF_NO_POLITE_ANNOUCEMENTS 1
 #endif /* !WITH_UIP6 */
 
 #define CFS_CONF_OFFSET_TYPE	long
@@ -41,8 +46,8 @@
 #endif /* RF_CHANNEL */
 
 #define ELFLOADER_CONF_TEXT_IN_ROM 0
-#define ELFLOADER_CONF_DATAMEMORY_SIZE 0x800
-#define ELFLOADER_CONF_TEXTMEMORY_SIZE 0x1000
+#define ELFLOADER_CONF_DATAMEMORY_SIZE 0x400
+#define ELFLOADER_CONF_TEXTMEMORY_SIZE 0x800
 
 #define IRQ_PORT1 0x01
 #define IRQ_PORT2 0x02
@@ -78,7 +83,9 @@
 #define UIP_CONF_LL_802154              1
 #define UIP_CONF_LLH_LEN                0
 
-#define UIP_CONF_ROUTER			1
+#ifndef UIP_CONF_ROUTER
+#define UIP_CONF_ROUTER			0
+#endif
 
 #define UIP_CONF_IPV6                   1
 #define UIP_CONF_IPV6_QUEUE_PKT         1

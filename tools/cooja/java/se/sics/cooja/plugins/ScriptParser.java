@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: ScriptParser.java,v 1.4 2009/01/15 13:11:56 fros4943 Exp $
+ * $Id: ScriptParser.java,v 1.7 2009/06/15 16:53:32 fros4943 Exp $
  */
 
 package se.sics.cooja.plugins;
@@ -37,6 +37,8 @@ import java.util.regex.Pattern;
 import javax.script.ScriptException;
 
 import org.apache.log4j.Logger;
+
+import se.sics.cooja.Simulation;
 
 public class ScriptParser {
   private static final long serialVersionUID = 1L;
@@ -64,8 +66,6 @@ public class ScriptParser {
     code = replaceYields(code);
 
     code = replaceWaitUntils(code);
-
-    code = replaceGenerateMessages(code);
 
     this.code = code;
   }
@@ -130,7 +130,7 @@ public class ScriptParser {
       throw new ScriptSyntaxErrorException("Only one timeout handler allowed");
     }
 
-    timeoutTime = Long.parseLong(matcher.group(1));
+    timeoutTime = Long.parseLong(matcher.group(1))*Simulation.MILLISECOND;
     timeoutCode = ";";
 
     matcher.reset(code);
@@ -161,7 +161,7 @@ public class ScriptParser {
       throw new ScriptSyntaxErrorException("Only one timeout handler allowed");
     }
 
-    timeoutTime = Long.parseLong(matcher.group(1));
+    timeoutTime = Long.parseLong(matcher.group(1))*Simulation.MILLISECOND;
     timeoutCode = matcher.group(2);
 
     matcher.reset(code);
@@ -217,34 +217,34 @@ public class ScriptParser {
     return code;
   }
 
-  private String replaceGenerateMessages(String code) throws ScriptSyntaxErrorException {
-    Pattern pattern = Pattern.compile(
-        "GENERATE_MSG\\(" +
-        "([0-9]+)" /* timeout */ +
-        "[\\s]*,[\\s]*" +
-        "(.*)" /* code */ +
-        "\\)"
-    );
-    Matcher matcher = pattern.matcher(code);
-
-    while (matcher.find()) {
-      long time = Long.parseLong(matcher.group(1));
-      String msg = matcher.group(2);
-
-      code = matcher.replaceFirst(
-          "log.generateMessage(" + time + "," + msg + ")");
-      matcher.reset(code);
-    }
-
-    return code;
-  }
-
   public String getJSCode() {
+    return getJSCode(code, timeoutCode);
+  }
+    
+  public static String getJSCode(String code, String timeoutCode) {
     return
+    "function run() { " +
+    "SEMAPHORE_SIM.acquire(); " +
+    "SEMAPHORE_SCRIPT.acquire(); " + /* STARTUP BLOCKS HERE! */
+    "if (SHUTDOWN) { SCRIPT_KILL(); } " +
+    "if (TIMEOUT) { SCRIPT_TIMEOUT(); } " +
+    "msg = new java.lang.String(msg); " +
+    "node.setMoteMsg(mote, msg); " +
+    code + 
+    "\n" +
+    "\n" +
+    "while (true) { SCRIPT_SWITCH(); } " /* SCRIPT ENDED */+
+    "};" +
+    "\n" +
+    "function GENERATE_MSG(time, msg) { " +
+    " log.generateMessage(time, msg); " +
+    "};\n" +
+    "\n" +
     "function SCRIPT_KILL() { " +
     " SEMAPHORE_SIM.release(100); " +
     " throw('test script killed'); " +
     "};\n" +
+    "\n" +
     "function SCRIPT_TIMEOUT() { " +
     timeoutCode + "; " +
     " log.log('TEST TIMEOUT\\n'); " +
@@ -255,6 +255,7 @@ public class ScriptParser {
     " } " +
     " SCRIPT_KILL(); " +
     "};\n" +
+    "\n" +
     "function SCRIPT_SWITCH() { " +
     " SEMAPHORE_SIM.release(); " +
     " SEMAPHORE_SCRIPT.acquire(); " /* SWITCH BLOCKS HERE! */ +
@@ -263,19 +264,10 @@ public class ScriptParser {
     " msg = new java.lang.String(msg); " +
     " node.setMoteMsg(mote, msg); " +
     "};\n" +
+    "\n" +
     "function write(mote,msg) { " +
     " mote.getInterfaces().getLog().writeString(msg); " +
-    "};\n" +
-    "function run() { " +
-    "SEMAPHORE_SIM.acquire(); " +
-    "SEMAPHORE_SCRIPT.acquire(); " + /* STARTUP BLOCKS HERE! */
-    "if (SHUTDOWN) { SCRIPT_KILL(); } " +
-    "if (TIMEOUT) { SCRIPT_TIMEOUT(); } " +
-    "msg = new java.lang.String(msg); " +
-    "node.setMoteMsg(mote, msg); " +
-    code + "\n" +
-    "while (true) { SCRIPT_SWITCH(); } " /* SCRIPT ENDED */+
-    "};";
+    "};\n";
   }
 
   public long getTimeoutTime() {

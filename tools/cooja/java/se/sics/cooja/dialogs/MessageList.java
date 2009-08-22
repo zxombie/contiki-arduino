@@ -26,18 +26,21 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: MessageList.java,v 1.10 2009/03/11 20:14:58 fros4943 Exp $
+ * $Id: MessageList.java,v 1.13 2009/06/25 15:46:57 fros4943 Exp $
  *
  * -----------------------------------------------------------------
  *
  * Author  : Adam Dunkels, Joakim Eriksson, Niclas Finne, Fredrik Osterlind
  * Created : 2006-06-14
- * Updated : $Date: 2009/03/11 20:14:58 $
- *           $Revision: 1.10 $
+ * Updated : $Date: 2009/06/25 15:46:57 $
+ *           $Revision: 1.13 $
  */
+
 package se.sics.cooja.dialogs;
+
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.Toolkit;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
@@ -52,15 +55,16 @@ import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
+
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JSeparator;
 import javax.swing.ListModel;
 import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
 
 import se.sics.cooja.GUI;
 
@@ -74,9 +78,10 @@ public class MessageList extends JList {
   private Color[] backgrounds = new Color[] { null, null };
 
   private JPopupMenu popup = null;
-
+  private boolean hideNormal = false;
+  
   public MessageList() {
-    super.setModel(new DefaultListModel());
+    super.setModel(new MessageModel());
     setCellRenderer(new MessageRenderer());
     setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
   }
@@ -144,9 +149,7 @@ public class MessageList extends JList {
   private ArrayList<MessageContainer> messages = new ArrayList<MessageContainer>();
 
   public MessageContainer[] getMessages() {
-    MessageContainer[] messagesArray = new MessageContainer[messages.size()];
-    messages.toArray(messagesArray);
-    return messagesArray;
+    return messages.toArray(new MessageContainer[0]);
   }
 
   private void updateModel() {
@@ -188,7 +191,17 @@ public class MessageList extends JList {
       popup = new JPopupMenu();
       addMouseListener(new MouseAdapter() {
         public void mouseClicked(MouseEvent e) {
-          if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) {
+          if (e.isPopupTrigger()) {
+            popup.show(MessageList.this, e.getX(), e.getY());
+          }
+        }
+        public void mousePressed(MouseEvent e) {
+          if (e.isPopupTrigger()) {
+            popup.show(MessageList.this, e.getX(), e.getY());
+          }
+        }
+        public void mouseReleased(MouseEvent e) {
+          if (e.isPopupTrigger()) {
             popup.show(MessageList.this, e.getX(), e.getY());
           }
         }
@@ -201,6 +214,16 @@ public class MessageList extends JList {
 
       if (withDefaults) {
         /* Create default menu items */
+        final JMenuItem hideNormalMenuItem = new JCheckBoxMenuItem("Hide normal output");
+        hideNormalMenuItem.setEnabled(true);
+        hideNormalMenuItem.addActionListener(new ActionListener() {
+          public void actionPerformed(ActionEvent e) {
+            MessageList.this.hideNormal = hideNormalMenuItem.isSelected();
+            ((MessageModel)getModel()).updateList();
+          }
+        });
+        popup.add(hideNormalMenuItem);
+
         JMenuItem consoleOutputMenuItem = new JMenuItem("Output to console");
         consoleOutputMenuItem.setEnabled(true);
         consoleOutputMenuItem.addActionListener(new ActionListener() {
@@ -208,6 +231,9 @@ public class MessageList extends JList {
             MessageContainer[] messages = getMessages();
             System.out.println("\nCOMPILATION OUTPUT:\n");
             for (MessageContainer msg: messages) {
+              if (hideNormal && msg.type == NORMAL) {
+                continue;
+              }
               System.out.println(msg);
             }
             System.out.println();
@@ -221,13 +247,16 @@ public class MessageList extends JList {
           public void actionPerformed(ActionEvent e) {
             Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
 
-            String output = "";
+            StringBuilder sb = new StringBuilder();
             MessageContainer[] messages = getMessages();
             for (MessageContainer msg: messages) {
-              output += msg + "\n";
+              if (hideNormal && msg.type == NORMAL) {
+                continue;
+              }
+              sb.append(msg + "\n");
             }
 
-            StringSelection stringSelection = new StringSelection(output);
+            StringSelection stringSelection = new StringSelection(sb.toString());
             clipboard.setContents(stringSelection, null);
           }
         });
@@ -268,8 +297,14 @@ public class MessageList extends JList {
   // Renderer for messages
   // -------------------------------------------------------------------
 
-  private static class MessageRenderer extends DefaultListCellRenderer {
+  private class MessageModel extends DefaultListModel {
+    public void updateList() {
+      fireContentsChanged(this, 0, getSize());
+    }
+  }
 
+  private class MessageRenderer extends DefaultListCellRenderer {
+    private Dimension nullDimension = new Dimension(0,0);
     public Component getListCellRendererComponent(
         JList list,
 	Object value,
@@ -280,6 +315,13 @@ public class MessageList extends JList {
       super.getListCellRendererComponent(list, value, index, isSelected,
 					 cellHasFocus);
       MessageContainer msg = (MessageContainer) value;
+
+      if (hideNormal && msg.type == NORMAL && index != MessageList.this.getModel().getSize()-1) {
+        setPreferredSize(nullDimension);
+        return this;
+      }
+
+      setPreferredSize(null);
       setForeground(((MessageList) list).getForeground(msg.type));
       setBackground(((MessageList) list).getBackground(msg.type));
       return this;

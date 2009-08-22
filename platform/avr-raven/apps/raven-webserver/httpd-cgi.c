@@ -28,7 +28,7 @@
  *
  * This file is part of the uIP TCP/IP stack.
  *
- * $Id: httpd-cgi.c,v 1.1 2009/03/12 19:15:25 adamdunkels Exp $
+ * $Id: httpd-cgi.c,v 1.4 2009/07/24 15:41:52 dak664 Exp $
  *
  */
 
@@ -49,61 +49,41 @@
 #include "httpd.h"
 #include "httpd-cgi.h"
 #include "httpd-fs.h"
-
+#include "httpd-fsdata.h"
 #include "lib/petsciiconv.h"
 
 #include "sensors.h"
 
+#define DEBUGLOGIC 0        //See httpd.c, if 1 must also set it there!
+#if DEBUGLOGIC
+#define uip_mss(...) 512
+#define uip_appdata TCPBUF
+extern char TCPBUF[512];
+#endif
+
 static struct httpd_cgi_call *calls = NULL;
 
-static const char closed[] =   /*  "CLOSED",*/
-{0x43, 0x4c, 0x4f, 0x53, 0x45, 0x44, 0};
-static const char syn_rcvd[] = /*  "SYN-RCVD",*/
-{0x53, 0x59, 0x4e, 0x2d, 0x52, 0x43, 0x56,
- 0x44,  0};
-static const char syn_sent[] = /*  "SYN-SENT",*/
-{0x53, 0x59, 0x4e, 0x2d, 0x53, 0x45, 0x4e,
- 0x54,  0};
-static const char established[] = /*  "ESTABLISHED",*/
-{0x45, 0x53, 0x54, 0x41, 0x42, 0x4c, 0x49,
- 0x53, 0x48, 0x45, 0x44, 0};
-static const char fin_wait_1[] = /*  "FIN-WAIT-1",*/
-{0x46, 0x49, 0x4e, 0x2d, 0x57, 0x41, 0x49,
- 0x54, 0x2d, 0x31, 0};
-static const char fin_wait_2[] = /*  "FIN-WAIT-2",*/
-{0x46, 0x49, 0x4e, 0x2d, 0x57, 0x41, 0x49,
- 0x54, 0x2d, 0x32, 0};
-static const char closing[] = /*  "CLOSING",*/
-{0x43, 0x4c, 0x4f, 0x53, 0x49,
- 0x4e, 0x47, 0};
-static const char time_wait[] = /*  "TIME-WAIT,"*/
-{0x54, 0x49, 0x4d, 0x45, 0x2d, 0x57, 0x41,
- 0x49, 0x54, 0};
-static const char last_ack[] = /*  "LAST-ACK"*/
-{0x4c, 0x41, 0x53, 0x54, 0x2d, 0x41, 0x43,
- 0x4b, 0};
-static const char none[] = /*  "NONE"*/
-{0x4e, 0x4f, 0x4e, 0x45, 0};
-static const char running[] = /*  "RUNNING"*/
-{0x52, 0x55, 0x4e, 0x4e, 0x49, 0x4e, 0x47,
- 0};
-static const char called[] = /*  "CALLED"*/
-{0x43, 0x41, 0x4c, 0x4c, 0x45, 0x44, 0};
-static const char file_name[] = /*  "file-stats"*/
-{0x66, 0x69, 0x6c, 0x65, 0x2d, 0x73, 0x74,
- 0x61, 0x74, 0x73, 0};
-static const char tcp_name[] = /*  "tcp-connections"*/
-{0x74, 0x63, 0x70, 0x2d, 0x63, 0x6f, 0x6e,
- 0x6e, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e,
- 0x73, 0};
-static const char proc_name[] = /*  "processes"*/
-{0x70, 0x72, 0x6f, 0x63, 0x65, 0x73, 0x73,
- 0x65, 0x73, 0};
+/*cgi function names*/
+#if HTTPD_FS_STATISTICS
+static const char   file_name[] HTTPD_STRING_ATTR = "file-stats";
+#endif
+static const char    tcp_name[] HTTPD_STRING_ATTR = "tcp-connections";
+static const char   proc_name[] HTTPD_STRING_ATTR = "processes";
+static const char sensor_name[] HTTPD_STRING_ATTR = "sensors";
 
-static const char sensor_name[] = "sensors";
-
-char sensor_temperature[12];
-
+/*Process states for processes cgi*/
+static const char      closed[] HTTPD_STRING_ATTR = "CLOSED";
+static const char    syn_rcvd[] HTTPD_STRING_ATTR = "SYN-RCVD";
+static const char    syn_sent[] HTTPD_STRING_ATTR = "SYN-SENT";
+static const char established[] HTTPD_STRING_ATTR = "ESTABLISHED";
+static const char  fin_wait_1[] HTTPD_STRING_ATTR = "FIN-WAIT-1";
+static const char  fin_wait_2[] HTTPD_STRING_ATTR = "FIN-WAIT-2";
+static const char     closing[] HTTPD_STRING_ATTR = "CLOSING";
+static const char   time_wait[] HTTPD_STRING_ATTR = "TIME-WAIT";
+static const char    last_ack[] HTTPD_STRING_ATTR = "LAST-ACK";
+static const char        none[] HTTPD_STRING_ATTR = "NONE";
+static const char     running[] HTTPD_STRING_ATTR = "RUNNING";
+static const char      called[] HTTPD_STRING_ATTR = "CALLED";
 static const char *states[] = {
   closed,
   syn_rcvd,
@@ -117,6 +97,8 @@ static const char *states[] = {
   none,
   running,
   called};
+
+  char sensor_temperature[12];
 
   uint8_t sprint_ip6(uip_ip6addr_t addr, char * result);
 
@@ -142,30 +124,63 @@ httpd_cgi(char *name)
 
   /* Find the matching name in the table, return the function. */
   for(f = calls; f != NULL; f = f->next) {
-    if(strncmp(f->name, name, strlen(f->name)) == 0) {
+    if(httpd_strncmp(name, f->name, httpd_strlen(f->name)) == 0) {
       return f->function;
     }
   }
   return nullfunction;
 }
+
+#if HTTPD_FS_STATISTICS
+static char *thisfilename;
 /*---------------------------------------------------------------------------*/
 static unsigned short
 generate_file_stats(void *arg)
 {
-  char *f = (char *)arg;
-  int i;
+  static const char httpd_cgi_filestat1[] HTTPD_STRING_ATTR = "<p class=right><br><br><i>This page has been sent %u times</i></div></body></html>";
+  static const char httpd_cgi_filestat2[] HTTPD_STRING_ATTR = "<tr><td><a href=\"%s\">%s</a></td><td>%d</td>";
+  static const char httpd_cgi_filestat3[] HTTPD_STRING_ATTR = "%5u";
   char tmp[20];
-// for (i=0;i<20;i++) if (pgm_read_byte(f++)==' ') break;	//skip file-stats string
-  for (i=0;i<19;i++) {
-	tmp[i]=pgm_read_byte(f++);			//transfer "/filename" to RAM
-	if (tmp[i]==' ') {
-	  tmp[i]=0;
-        break;
-      }
+  struct httpd_fsdata_file_noconst *f,fram;
+  u16_t i;
+  unsigned short numprinted;
+
+  /* Transfer arg from whichever flash that contains the html file to RAM */
+  httpd_fs_cpy(&tmp, (char *)arg, 20);
+
+  /* Count for this page, with common page footer */
+  if (tmp[0]=='.') {
+    numprinted=httpd_snprintf((char *)uip_appdata, uip_mss(), httpd_cgi_filestat1, httpd_fs_open(thisfilename, 0));
+
+  /* Count for all files */
+  /* Note buffer will overflow if there are too many files! */
+  } else if (tmp[0]=='*') {
+    i=0;numprinted=0;
+    for(f = (struct httpd_fsdata_file_noconst *)httpd_fs_get_root();
+        f != NULL;
+        f = (struct httpd_fsdata_file_noconst *)fram.next) {
+
+      /* Get the linked list file entry into RAM from from wherever it is*/
+      httpd_memcpy(&fram,f,sizeof(fram));
+ 
+      /* Get the file name from whatever memory it is in */
+      httpd_fs_cpy(&tmp, fram.name, sizeof(tmp));
+#if HTTPD_FS_STATISTICS==1
+      numprinted+=httpd_snprintf((char *)uip_appdata+numprinted, uip_mss()-numprinted, httpd_cgi_filestat2, tmp, tmp, f->count);
+#elif HTTPD_FS_STATISTICS==2
+      numprinted+=httpd_snprintf((char *)uip_appdata+numprinted, uip_mss()-numprinted, httpd_cgi_filestat2, tmp, tmp, httpd_filecount[i]);
+#endif
+      i++;
+    }
+
+  /* Count for specified file */
+  } else {
+    numprinted=httpd_snprintf((char *)uip_appdata, uip_mss(), httpd_cgi_filestat3, httpd_fs_open(tmp, 0));
   }
-//  return sprintf_P((char *)uip_appdata, PSTR( "%s"), tmp); //show file name for debugging
-  return snprintf_P((char *)uip_appdata, uip_mss(), PSTR("%5u"), httpd_fs_count(tmp));
-//  return snprintf_P((char *)uip_appdata, uip_mss(), PSTR("%5u"), httpd_fs_count(f));
+#if DEBUGLOGIC
+  return 0;
+#endif
+  return numprinted;
 }
 /*---------------------------------------------------------------------------*/
 static
@@ -174,31 +189,33 @@ PT_THREAD(file_stats(struct httpd_state *s, char *ptr))
 
   PSOCK_BEGIN(&s->sout);
 
-  //while (pgm_read_byte(ptr++)!=' ') {};	//skip to "/filename" after the script invokation
-  PSOCK_GENERATOR_SEND(&s->sout, generate_file_stats, (void *) (strchr_P(ptr, ' ') + 1));
+  thisfilename=&s->filename[0]; //temporary way to pass filename to generate_file_stats
+  
+  PSOCK_GENERATOR_SEND(&s->sout, generate_file_stats, (void *) ptr);
   
   PSOCK_END(&s->sout);
 }
+#endif /*HTTPD_FS_STATISTICS*/
 /*---------------------------------------------------------------------------*/
 static unsigned short
 make_tcp_stats(void *arg)
 {
+  static const char httpd_cgi_tcpstat1[] HTTPD_STRING_ATTR = "<tr align=\"center\"><td>%d</td><td>";
+  static const char httpd_cgi_tcpstat2[] HTTPD_STRING_ATTR = "-%u</td><td>%s</td><td>%u</td><td>%u</td><td>%c %c</td></tr>\r\n";
   struct uip_conn *conn;
   struct httpd_state *s = (struct httpd_state *)arg;
-    
+  char tstate[20];
   uint16_t numprinted;
 
   conn = &uip_conns[s->u.count];
 
-  numprinted = snprintf((char *)uip_appdata, uip_mss(),
-                 "<tr align=\"center\"><td>%d</td><td>", 
-                 htons(conn->lport));
-                 
-  numprinted += sprint_ip6(conn->ripaddr, uip_appdata + numprinted);             
-  numprinted +=  snprintf((char *)uip_appdata + numprinted, uip_mss() - numprinted,              
-                 "-%u</td><td>%s</td><td>%u</td><td>%u</td><td>%c %c</td></tr>\r\n",
+  numprinted = httpd_snprintf((char *)uip_appdata, uip_mss(), httpd_cgi_tcpstat1, htons(conn->lport));
+  numprinted += sprint_ip6(conn->ripaddr, uip_appdata + numprinted);
+  httpd_strcpy(tstate,states[conn->tcpstateflags & UIP_TS_MASK]);
+  numprinted +=  httpd_snprintf((char *)uip_appdata + numprinted, uip_mss() - numprinted,
+                 httpd_cgi_tcpstat2,
                  htons(conn->rport),
-                 states[conn->tcpstateflags & UIP_TS_MASK],
+                 tstate,
                  conn->nrtx,
                  conn->timer,
                  (uip_outstanding(conn))? '*':' ',
@@ -225,16 +242,17 @@ PT_THREAD(tcp_stats(struct httpd_state *s, char *ptr))
 static unsigned short
 make_processes(void *p)
 {
-  char name[40];
+  static const char httpd_cgi_proc[] HTTPD_STRING_ATTR = "<tr align=\"center\"><td>%p</td><td>%s</td><td>%p</td><td>%s</td></tr>\r\n";
+  char name[40],tstate[20];
 
   strncpy(name, ((struct process *)p)->name, 40);
   petsciiconv_toascii(name, 40);
+  httpd_strcpy(tstate,states[9 + ((struct process *)p)->state]);
+  return httpd_snprintf((char *)uip_appdata, uip_mss(), httpd_cgi_proc, p, name,
+//  *((char **)&(((struct process *)p)->thread)),
+    *(char *)(&(((struct process *)p)->thread)),
 
-  return snprintf_P((char *)uip_appdata, uip_mss(),
-		 PSTR("<tr align=\"center\"><td>%p</td><td>%s</td><td>%p</td><td>%s</td></tr>\r\n"),
-		 p, name,
-		 *((char **)&(((struct process *)p)->thread)),
-		 states[9 + ((struct process *)p)->state]);
+    tstate);
 }
 /*---------------------------------------------------------------------------*/
 static
@@ -250,8 +268,10 @@ PT_THREAD(processes(struct httpd_state *s, char *ptr))
 static unsigned short
 generate_sensor_readings(void *arg)
 {
-  if (!sensor_temperature[0]) return snprintf_P((char *)uip_appdata,uip_mss(),PSTR("<em>Temperature:</em> Not enabled\n"));
-  return snprintf_P((char *)uip_appdata, uip_mss(), PSTR("<em>Temperature:</em> %s\n"), sensor_temperature);
+  static const char httpd_cgi_sensor1[] HTTPD_STRING_ATTR = "<em>Temperature:</em> Not enabled\n";
+  static const char httpd_cgi_sensor2[] HTTPD_STRING_ATTR = "<em>Temperature:</em> %s\n";
+  if (!sensor_temperature[0]) return httpd_snprintf((char *)uip_appdata, uip_mss(), httpd_cgi_sensor1);
+  return httpd_snprintf((char *)uip_appdata, uip_mss(), httpd_cgi_sensor2, sensor_temperature);
 }
 /*---------------------------------------------------------------------------*/
 static
@@ -279,22 +299,24 @@ httpd_cgi_add(struct httpd_cgi_call *c)
 }
 /*---------------------------------------------------------------------------*/
 
-HTTPD_CGI_CALL(file, file_name, file_stats);
-HTTPD_CGI_CALL(tcp, tcp_name, tcp_stats);
-HTTPD_CGI_CALL(proc, proc_name, processes);
+#if HTTPD_FS_STATISTICS
+HTTPD_CGI_CALL(   file,   file_name,      file_stats);
+#endif
+HTTPD_CGI_CALL(    tcp,    tcp_name, tcp_stats      );
+HTTPD_CGI_CALL(   proc,   proc_name, processes      );
 HTTPD_CGI_CALL(sensors, sensor_name, sensor_readings);
 
 void
 httpd_cgi_init(void)
 {
-  httpd_cgi_add(&file);
-  httpd_cgi_add(&tcp);
-  httpd_cgi_add(&proc);
+#if HTTPD_FS_STATISTICS
+  httpd_cgi_add(   &file);
+#endif
+  httpd_cgi_add(    &tcp);
+  httpd_cgi_add(   &proc);
   httpd_cgi_add(&sensors);
 }
 /*---------------------------------------------------------------------------*/
-
-
 
 uint8_t sprint_ip6(uip_ip6addr_t addr, char * result)
         {

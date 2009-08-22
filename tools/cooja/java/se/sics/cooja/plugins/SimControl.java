@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2006, Swedish Institute of Computer Science.
+ * Copyright (c) 2009, Swedish Institute of Computer Science.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: SimControl.java,v 1.13 2009/04/23 08:48:01 fros4943 Exp $
+ * $Id: SimControl.java,v 1.15 2009/07/06 12:29:57 fros4943 Exp $
  */
 
 package se.sics.cooja.plugins;
@@ -38,101 +38,54 @@ import java.beans.PropertyChangeListener;
 import java.text.NumberFormat;
 import java.util.*;
 import javax.swing.*;
+import javax.swing.Timer;
 import javax.swing.event.*;
+
 import org.apache.log4j.Logger;
 
 import se.sics.cooja.*;
 
 /**
- * The Control Panel is a simple control panel for simulations.
+ * Control panel for starting and pausing the current simulation.
+ * Allows for configuring the simulation delay.
  *
  * @author Fredrik Osterlind
  */
 @ClassDescription("Control Panel")
 @PluginType(PluginType.SIM_STANDARD_PLUGIN)
 public class SimControl extends VisPlugin {
-  private static final long serialVersionUID = 1L;
+  private static final long serialVersionUID = 8452253637624664192L;
   private static Logger logger = Logger.getLogger(SimControl.class);
 
   private Simulation simulation;
+  private static final int SLIDE_MIN = -100;
+  private static final int SLIDE_MAX = 1000;
 
-  private static final int SLIDE_MAX = 921; // e^9.21 => ~10000
-  private static final int TIME_MAX = 10000;
+  private static final int LABEL_UPDATE_INTERVAL = 100;
 
+  private JButton startButton, stopButton;
   private JSlider sliderDelay;
   private JLabel simulationTime, delayLabel;
-  private JButton startButton, stopButton;
   private JFormattedTextField stopTimeTextField;
-  private int simulationStopTime = -1;
 
   private Observer simObserver;
-  private Observer tickObserver;
-
-  private long lastTextUpdateTime = -1;
 
   /**
    * Create a new simulation control panel.
    *
-   * @param simulationToControl Simulation to control
+   * @param simulation Simulation to control
    */
-  public SimControl(Simulation simulationToControl, GUI gui) {
-    super("Control Panel - " + simulationToControl.getTitle(), gui);
+  public SimControl(Simulation simulation, GUI gui) {
+    super("Control Panel", gui);
+    this.simulation = simulation;
 
-    simulation = simulationToControl;
+    /* Update current time label when simulation is running */
+    if (simulation.isRunning()) {
+      updateLabelTimer.start(); 
+    }
 
-    JButton button;
+    /* Container */
     JPanel smallPanel;
-
-    SwingUtilities.invokeLater(new Runnable() {
-      public void run() {
-        // Register as tickobserver
-        simulation.addTickObserver(tickObserver = new Observer() {
-          public void update(Observable obs, Object obj) {
-            if (simulation == null || simulationTime == null) {
-              return;
-            }
-
-            // During simulation running, only update text 10 times each second
-            if (lastTextUpdateTime < System.currentTimeMillis() - 100) {
-              lastTextUpdateTime = System.currentTimeMillis();
-              simulationTime.setText("Current simulation time: " + simulation.getSimulationTime());
-            }
-
-            if (simulationStopTime > 0 && simulationStopTime <= simulation.getSimulationTime() && simulation.isRunning()) {
-              // Time to stop simulation now
-              simulation.stopSimulation();
-              simulationStopTime = -1;
-              stopTimeTextField.setValue(simulation.getSimulationTime());
-            }
-          }
-        });
-
-        // Register as simulation observer
-        simulation.addObserver(simObserver = new Observer() {
-          public void update(Observable obs, Object obj) {
-            if (simulation.isRunning()) {
-              startButton.setEnabled(false);
-              stopButton.setEnabled(true);
-            } else {
-              startButton.setEnabled(true);
-              stopButton.setEnabled(false);
-
-              if (simulationStopTime < 0) {
-                stopTimeTextField.setValue(simulation.getSimulationTime());
-              }
-            }
-
-            if (sliderDelay != null) {
-              sliderDelay.setValue(convertTimeToSlide(simulation.getDelayTime()));
-              simulationTime.setText("Current simulation time: " + simulation.getSimulationTime());
-            }
-          }
-        });
-      }
-    });
-
-
-    // Main panel
     JPanel controlPanel = new JPanel();
     controlPanel.setLayout(new BoxLayout(controlPanel, BoxLayout.Y_AXIS));
 
@@ -143,22 +96,9 @@ public class SimControl extends VisPlugin {
     smallPanel.setLayout(new BoxLayout(smallPanel, BoxLayout.X_AXIS));
     smallPanel.setBorder(BorderFactory.createEmptyBorder(10, 5, 10, 5));
 
-    button = new JButton("Start");
-    button.setActionCommand("start");
-    button.addActionListener(myEventHandler);
-    startButton = button;
-    smallPanel.add(button);
-
-    button = new JButton("Pause");
-    button.setActionCommand("stop");
-    button.addActionListener(myEventHandler);
-    stopButton = button;
-    smallPanel.add(button);
-
-    button = new JButton("Step millisecond");
-    button.setActionCommand("single_ms");
-    button.addActionListener(myEventHandler);
-    smallPanel.add(button);
+    smallPanel.add(startButton = new JButton(startAction));
+    smallPanel.add(stopButton = new JButton(stopAction));
+    smallPanel.add(new JButton(stepAction));
 
     smallPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
     controlPanel.add(smallPanel);
@@ -177,20 +117,25 @@ public class SimControl extends VisPlugin {
     stopTimeTextField = new JFormattedTextField(integerFormat);
     stopTimeTextField.addPropertyChangeListener("value", new PropertyChangeListener() {
       public void propertyChange(PropertyChangeEvent e) {
-        JFormattedTextField numberTextField = (JFormattedTextField) e.getSource();
-        int untilTime = ((Number) numberTextField.getValue()).intValue();
-        if (untilTime <= simulation.getSimulationTime()) {
-          numberTextField.setBackground(Color.LIGHT_GRAY);
-          numberTextField.setToolTipText("Enter future simulation time");
-          simulationStopTime = -1;
+        /* Remove already scheduled stop event */
+        if (stopEvent.isScheduled()) {
+          stopEvent.remove();
+        }
+
+        long t = ((Number)e.getNewValue()).intValue()*Simulation.MILLISECOND;
+        if (t <= SimControl.this.simulation.getSimulationTime()) {
+          /* No simulation stop scheduled */
+          stopTimeTextField.setBackground(Color.LIGHT_GRAY);
+          stopTimeTextField.setToolTipText("Enter simulation time when to automatically pause");
         } else {
-          numberTextField.setBackground(Color.WHITE);
-          numberTextField.setToolTipText("Simulation will stop at time: " + untilTime);
-          simulationStopTime = untilTime;
+          /* Schedule simulation stop */
+          stopTimeTextField.setBackground(Color.WHITE);
+          stopTimeTextField.setToolTipText("Simulation will stop at time (us): " + t);
+          SimControl.this.simulation.scheduleEvent(stopEvent, t);
         }
       }
     });
-    stopTimeTextField.setValue(simulation.getSimulationTime());
+    stopTimeTextField.setValue(simulation.getSimulationTimeMillis());
     stopTimeTextField.setSize(100, stopTimeTextField.getHeight());
 
     smallPanel.add(stopTimeTextField);
@@ -204,7 +149,7 @@ public class SimControl extends VisPlugin {
     smallPanel.setLayout(new BoxLayout(smallPanel, BoxLayout.X_AXIS));
     smallPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 5));
 
-    label = new JLabel("Current simulation time: " + simulation.getSimulationTime());
+    label = new JLabel("?");
     smallPanel.add(label);
     simulationTime = label;
 
@@ -216,11 +161,7 @@ public class SimControl extends VisPlugin {
     smallPanel.setLayout(new BoxLayout(smallPanel, BoxLayout.X_AXIS));
     smallPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 5));
 
-    if (simulation.getDelayTime() > 0) {
-      label = new JLabel("Delay: " + simulation.getDelayTime() + " ms");
-    } else {
-      label = new JLabel("No simulation delay");
-    }
+    label = new JLabel("?");
     smallPanel.add(label);
     delayLabel = label;
 
@@ -232,86 +173,168 @@ public class SimControl extends VisPlugin {
     smallPanel.setLayout(new BoxLayout(smallPanel, BoxLayout.X_AXIS));
     smallPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 10, 5));
 
-    JSlider slider = new JSlider(JSlider.HORIZONTAL, 0, SLIDE_MAX, convertTimeToSlide(simulation.getDelayTime()));
-    slider.addChangeListener(myEventHandler);
+    sliderDelay = new JSlider(
+        JSlider.HORIZONTAL, 
+        SLIDE_MIN, 
+        SLIDE_MAX, 
+        convertTimeToSlide(simulation.getDelayTime()));
+    sliderDelay.addChangeListener(new ChangeListener() {
+      public void stateChanged(ChangeEvent e) {
+        SimControl.this.simulation.setDelayTime(
+            convertSlideToTime(sliderDelay.getValue()));
+        updateValues();
+      }
+    });
 
-    Hashtable labelTable = new Hashtable();
-    for (int i=0; i < 100; i += 10) {
-      labelTable.put(new Integer(convertTimeToSlide(i)), new JLabel("."));
-    }
-    for (int i=200; i < 10000; i += 500) {
-      labelTable.put(new Integer(convertTimeToSlide(i)), new JLabel(":"));
-    }
-    slider.setLabelTable(labelTable);
-    slider.setPaintLabels(true);
-
-    smallPanel.add(slider);
-    sliderDelay = slider;
+    smallPanel.add(sliderDelay);
 
     smallPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
     controlPanel.add(smallPanel);
 
-    pack();
+    /* Observe current simulation */
+    simulation.addObserver(simObserver = new Observer() {
+      public void update(Observable obs, Object obj) {
+        SwingUtilities.invokeLater(new Runnable() {
+          public void run() {
+            updateValues();
+          }
+        });
+      }
+    });
+    /* Set initial values */
+    updateValues();
 
-    try {
-      setSelected(true);
-    } catch (java.beans.PropertyVetoException e) {
-      // Could not select
+    pack();
+  }
+
+  private void updateValues() {
+    /* Update simulation delay */
+    sliderDelay.setValue(convertTimeToSlide(simulation.getDelayTime()));
+    if (simulation.getDelayTime() == 0) {
+      delayLabel.setText("No simulation delay");
+    } else if (simulation.getDelayTime() == Integer.MIN_VALUE) {
+      delayLabel.setText("Real time");
+    } else if (simulation.getDelayTime() > 0) {
+      delayLabel.setText("Delay: " + simulation.getDelayTime() + " ms");
+    } else {
+      delayLabel.setText("Delay: 1/" + (-simulation.getDelayTime()) + " ms");
+    }
+
+    /* Update current time */
+    simulationTime.setText("Current simulation time: "
+        + simulation.getSimulationTimeMillis()
+        + " ms");
+    if (simulation.isRunning() && !updateLabelTimer.isRunning()) {
+      updateLabelTimer.start();
+    }
+    if (!simulation.isRunning()) {
+      simulationTime.setToolTipText("Simulation time in microseconds: "
+          + simulation.getSimulationTime());
+    }
+
+    /* Update control buttons */
+    if (simulation.isRunning()) {
+      startAction.setEnabled(false);
+      stopAction.setEnabled(true);
+      stepAction.setEnabled(false);
+    } else {
+      startAction.setEnabled(true);
+      stopAction.setEnabled(false);
+      stepAction.setEnabled(true);
+
+      if (!stopEvent.isScheduled()) {
+        stopTimeTextField.setValue(simulation.getSimulationTimeMillis());
+      }
     }
   }
 
   private int convertSlideToTime(int slide) {
-    if (slide == SLIDE_MAX) {
-      return TIME_MAX;
+    if (slide == SLIDE_MIN) {
+      /* Special case: no delay */
+      return 0;
     }
-    return (int) Math.round(Math.exp(slide/100.0) - 1.0);
+    if (slide == SLIDE_MIN+1) {
+      /* Special case: real time */
+      return Integer.MIN_VALUE;
+    }
+    if (slide <= 0) {
+      return slide-2; /* Ignore special cases */ 
+    }
+    return slide; 
   }
 
   private int convertTimeToSlide(int time) {
-    if (time == TIME_MAX) {
-      return SLIDE_MAX;
+    if (time == 0) {
+      /* Special case: no delay */
+      return SLIDE_MIN;
     }
-
-    return (int) Math.round((Math.log(time + 1)*100.0));
+    if (time == Integer.MIN_VALUE) {
+      /* Special case: real time */
+      return SLIDE_MIN+1;
+    }
+    if (time < 0) {
+      return time+2; /* Ignore special cases */
+    }
+    return time;
   }
 
-  private class MyEventHandler implements ActionListener, ChangeListener {
-    public void stateChanged(ChangeEvent e) {
-      if (e.getSource() == sliderDelay) {
-        simulation.setDelayTime(convertSlideToTime(sliderDelay.getValue()));
-        if (simulation.getDelayTime() > 0) {
-          delayLabel.setText("Delay: " + simulation.getDelayTime() + " ms");
-        } else {
-          delayLabel.setText("No simulation delay");
-        }
-      } else {
-        logger.debug("Unhandled state change: " + e);
-      }
-    }
-    public void actionPerformed(ActionEvent e) {
-      if (e.getActionCommand().equals("start")) {
-        simulation.startSimulation();
-      } else if (e.getActionCommand().equals("stop")) {
-        if (simulation.isRunning()) {
-          simulation.stopSimulation();
-        }
-      } else if (e.getActionCommand().equals("single_ms")) {
-        simulation.tickSimulation();
-      } else {
-        logger.debug("Unhandled action: " + e.getActionCommand());
-      }
-    }
-  } MyEventHandler myEventHandler = new MyEventHandler();
-
   public void closePlugin() {
-    // Remove log observer from all log interfaces
+    /* Remove simulation observer */
     if (simObserver != null) {
       simulation.deleteObserver(simObserver);
     }
 
-    if (tickObserver != null) {
-      simulation.deleteTickObserver(tickObserver);
+    /* Remove stop event */
+    if (stopEvent.isScheduled()) {
+      stopEvent.remove();
     }
+
+    /* Remove label update timer */
+    updateLabelTimer.stop();
   }
 
+  private TimeEvent stopEvent = new TimeEvent(0) {
+    public void execute(long t) {
+      /* Stop simulation */
+      simulation.stopSimulation();
+      SwingUtilities.invokeLater(new Runnable() {
+        public void run() {
+          stopTimeTextField.setBackground(Color.LIGHT_GRAY);
+          stopTimeTextField.setToolTipText("Enter simulation time when to automatically pause");
+          stopTimeTextField.requestFocus();
+        }
+      });
+    }
+  };
+
+  private Timer updateLabelTimer = new Timer(LABEL_UPDATE_INTERVAL, new ActionListener() {
+    public void actionPerformed(ActionEvent e) {
+      simulationTime.setText("Current simulation time: "
+          + simulation.getSimulationTimeMillis()
+          + " ms");
+
+      /* Automatically stop if simulation is no longer running */
+      if (!simulation.isRunning()) {
+        updateLabelTimer.stop();
+      }
+    }
+  });
+
+  private Action startAction = new AbstractAction("Start") {
+    public void actionPerformed(ActionEvent e) {
+      simulation.startSimulation();
+      stopButton.requestFocus();
+    }
+  };
+  private Action stopAction = new AbstractAction("Pause") {
+    public void actionPerformed(ActionEvent e) {
+      simulation.stopSimulation();
+      startButton.requestFocus();
+    }
+  };
+  private Action stepAction = new AbstractAction("Step millisecond") {
+    public void actionPerformed(ActionEvent e) {
+      simulation.stepMillisecondSimulation();
+    }
+  };
 }

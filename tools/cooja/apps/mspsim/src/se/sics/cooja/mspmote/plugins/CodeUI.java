@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, Swedish Institute of Computer Science.
+ * Copyright (c) 2009, Swedish Institute of Computer Science.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,7 +26,7 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
- * $Id: CodeUI.java,v 1.5 2008/11/03 18:10:52 fros4943 Exp $
+ * $Id: CodeUI.java,v 1.7 2009/06/12 15:11:22 fros4943 Exp $
  */
 
 package se.sics.cooja.mspmote.plugins;
@@ -37,12 +37,12 @@ import java.awt.event.ActionListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.io.File;
-import java.util.Enumeration;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.Vector;
 import javax.swing.*;
 import org.apache.log4j.Logger;
 
-import se.sics.cooja.mspmote.plugins.MspCodeWatcher.Breakpoints;
 import se.sics.mspsim.extutil.highlight.CScanner;
 import se.sics.mspsim.extutil.highlight.Token;
 import se.sics.mspsim.extutil.highlight.TokenTypes;
@@ -57,9 +57,9 @@ public class CodeUI extends JPanel {
 
   private JPanel panel = null;
   private JList codeList = null;
-  private File currentFile = null;
 
-  private Breakpoints breakpoints = null;
+  private MspBreakpointContainer breakpoints = null;
+  protected File displayedFile = null;
 
   private Token tokensArray[][] = null;
   private int tokensStartPos[] = null;
@@ -67,7 +67,7 @@ public class CodeUI extends JPanel {
   /**
    * @param breakpoints Breakpoints
    */
-  public CodeUI(Breakpoints breakpoints) {
+  public CodeUI(MspBreakpointContainer breakpoints) {
     this.breakpoints = breakpoints;
 
     setLayout(new BorderLayout());
@@ -76,14 +76,23 @@ public class CodeUI extends JPanel {
     add(panel, BorderLayout.CENTER);
     displayNoCode();
 
-    breakpoints.addBreakpointListener(new ActionListener() {
+    breakpoints.addWatchpointListener(new ActionListener() {
       public void actionPerformed(ActionEvent e) {
-        if (codeList != null) {
-          codeList.updateUI();
+        /* Only update code list if simulation is not running */
+        if (CodeUI.this.breakpoints.getMote().getSimulation().isRunning() ||
+            CodeUI.this.breakpoints.getLastWatchpoint() != null) {
+          return;
         }
+        
+        SwingUtilities.invokeLater(new Runnable() {
+          public void run() {
+            if (codeList != null) {
+              codeList.updateUI();
+            }
+          }
+        });
       }
     });
-
   }
 
   /**
@@ -97,17 +106,19 @@ public class CodeUI extends JPanel {
         panel.repaint();
       }
     });
-    currentFile = null;
+    displayedFile = null;
     return;
   }
 
-  private void createTokens(Vector<String> codeData) {
+  private void createTokens(String[] codeData) {
 
     /* Merge code lines */
-    String code = "";
+    StringBuilder sb = new StringBuilder();
     for (String line: codeData) {
-      code += line + "\n";
+      sb.append(line);
+      sb.append('\n');
     }
+    String code = sb.toString();
 
     /* Scan code */
     CScanner cScanner = new CScanner();
@@ -116,30 +127,30 @@ public class CodeUI extends JPanel {
     nrTokens = cScanner.scan(code.toCharArray(), 0, code.length());
 
     /* Extract tokens */
-    Vector<Token> codeTokensVector = new Vector<Token>();
+    ArrayList<Token> codeTokensVector = new ArrayList<Token>();
     for (int i=0; i < nrTokens; i++) {
       Token token = cScanner.getToken(i);
       codeTokensVector.add(token);
     }
 
     /* Create new line token array */
-    Token newTokensArray[][] = new Token[codeData.size()][];
-    int[] newTokensStartPos = new int[codeData.size()];
+    Token newTokensArray[][] = new Token[codeData.length][];
+    int[] newTokensStartPos = new int[codeData.length];
     int lineStart=0, lineEnd=-1;
-    Enumeration<Token> tokensEnum = codeTokensVector.elements();
-    Token currentToken = tokensEnum.nextElement();
+    Iterator<Token> tokens = codeTokensVector.iterator();
+    Token currentToken = tokens.next();
     for (int i=0; i < newTokensArray.length; i++) {
       lineStart = lineEnd + 1;
-      lineEnd = lineStart + codeData.get(i).length();
+      lineEnd = lineStart + codeData[i].length();
 
       newTokensStartPos[i] = lineStart;;
 
       /* Advance tokens until correct line */
       while (currentToken.position + currentToken.symbol.name.length() < lineStart) {
-        if (!tokensEnum.hasMoreElements()) {
+        if (!tokens.hasNext()) {
           break;
         }
-        currentToken = tokensEnum.nextElement();
+        currentToken = tokens.next();
       }
 
       /* Advance tokens until last token on line */
@@ -147,10 +158,10 @@ public class CodeUI extends JPanel {
       while (currentToken.position < lineEnd) {
         lineTokens.add(currentToken);
 
-        if (!tokensEnum.hasMoreElements()) {
+        if (!tokens.hasNext()) {
           break;
         }
-        currentToken = tokensEnum.nextElement();
+        currentToken = tokens.next();
       }
 
       if (currentToken == null) {
@@ -177,10 +188,10 @@ public class CodeUI extends JPanel {
    * @param codeData Source code
    * @param lineNr Line numer
    */
-  public void displayNewCode(final File codeFile, final Vector<String> codeData, final int lineNr) {
-    currentFile = codeFile;
+  public void displayNewCode(final File codeFile, final String[] codeData, final int lineNr) {
+    displayedFile = codeFile;
 
-    if (codeData == null || codeData.size() == 0) {
+    if (codeData == null || codeData.length == 0) {
       displayNoCode();
       return;
     }
@@ -216,7 +227,7 @@ public class CodeUI extends JPanel {
         displayLine(lineNr);
       }
     });
-    }
+  }
 
   /**
    * Mark given line number in shown source code.
@@ -224,21 +235,24 @@ public class CodeUI extends JPanel {
    * @param lineNumber Line number
    */
   public void displayLine(final int lineNumber) {
-    if (codeList == null) {
+    if (codeList == null || lineNumber < 0) {
+      SwingUtilities.invokeLater(new Runnable() {
+        public void run() {
+          codeList.updateUI();
+        }
+      });
       return;
     }
 
     SwingUtilities.invokeLater(new Runnable() {
       public void run() {
-        if (lineNumber > 0) {
-          ((CodeCellRenderer) codeList.getCellRenderer()).changeCurrentLine(lineNumber);
-          int index = lineNumber - 1;
-          codeList.setSelectedIndex(index);
+        ((CodeCellRenderer) codeList.getCellRenderer()).changeCurrentLine(lineNumber);
+        int index = lineNumber - 1;
+        codeList.setSelectedIndex(index);
 
-          codeList.ensureIndexIsVisible(Math.max(0, index-3));
-          codeList.ensureIndexIsVisible(Math.min(index+3, codeList.getModel().getSize()));
-          codeList.ensureIndexIsVisible(index);
-        }
+        codeList.ensureIndexIsVisible(Math.max(0, index-3));
+        codeList.ensureIndexIsVisible(Math.min(index+3, codeList.getModel().getSize()));
+        codeList.ensureIndexIsVisible(index);
         codeList.updateUI();
       }
     });
@@ -259,7 +273,7 @@ public class CodeUI extends JPanel {
           codeList.setSelectedIndex(currentLine - 1);
         }
       });
-      JPopupMenu popupMenu = createPopupMenu(currentFile, currentLine);
+      JPopupMenu popupMenu = createPopupMenu(displayedFile, currentLine);
 
       popupMenu.setLocation(menuLocation);
       popupMenu.setInvoker(codeList);
@@ -269,10 +283,7 @@ public class CodeUI extends JPanel {
 
   private JPopupMenu createPopupMenu(final File codeFile, final int lineNr) {
     final Integer executableAddress = breakpoints.getExecutableAddressOf(codeFile, lineNr);
-    boolean breakpointExists = false;
-    if (executableAddress != null) {
-      breakpointExists = breakpoints.breakpointExists(executableAddress);
-    }
+    boolean breakpointExists = breakpoints.breakpointExists(codeFile, lineNr);
 
     JPopupMenu menuMotePlugins = new JPopupMenu();
     JMenuItem headerMenuItem = new JMenuItem("Breakpoints:");
@@ -308,27 +319,27 @@ public class CodeUI extends JPanel {
   }
 
   private class CodeListModel extends AbstractListModel {
-    private Vector<String> codeData;
+    private String[] codeData;
 
-    public CodeListModel(Vector<String> codeData) {
+    public CodeListModel(String[] codeData) {
       super();
       this.codeData = codeData;
     }
 
     public int getSize() {
-      if (codeData == null || codeData.isEmpty()) {
+      if (codeData == null || codeData.length == 0) {
         return 0;
       }
 
-      return codeData.size();
+      return codeData.length;
     }
 
     public Object getElementAt(int index) {
-      if (codeData == null || codeData.isEmpty()) {
+      if (codeData == null || codeData.length == 0) {
         return "No code to display";
       }
 
-      return codeData.get(index);
+      return codeData[index];
     }
   }
 
@@ -399,7 +410,9 @@ public class CodeUI extends JPanel {
       String html = "<html>";
 
       /* Add line number */
-      html += "<font color=\"333333\">" + lineNr + ":  </font>";
+      String lineString = "0000" + Integer.toString(lineNr);
+      lineString = lineString.substring(lineString.length() - 4);
+      html += "<font color=\"333333\">" + lineString + ":  </font>";
 
       /* Add code */
       if (tokens == null || tokens.length == 0 || lineStartPos < 0) {
@@ -460,7 +473,6 @@ public class CodeUI extends JPanel {
       return html;
     }
 
-
     public Component getListCellRendererComponent(
        JList list,
        Object value,
@@ -487,8 +499,7 @@ public class CodeUI extends JPanel {
       }
       setEnabled(list.isEnabled());
 
-      Integer executableAddress = breakpoints.getExecutableAddressOf(currentFile, lineNr);
-      if (breakpoints.breakpointExists(executableAddress)) {
+      if (breakpoints.breakpointExists(displayedFile, lineNr)) {
         setFont(list.getFont().deriveFont(Font.BOLD));
       } else {
         setFont(list.getFont());
