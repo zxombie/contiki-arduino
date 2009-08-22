@@ -72,7 +72,7 @@ FUSES =
 uint8_t mac_address[8] EEMEM = {0x02, 0x11, 0x22, 0xff, 0xfe, 0x33, 0x44, 0x55};
 #endif
 
-PROCINIT(&etimer_process);
+PROCINIT(&etimer_process, &serial_line_process);
 
 void
 init_lowlevel(void)
@@ -82,6 +82,8 @@ init_lowlevel(void)
 
   /* Redirect stdout to second port */
   rs232_redirect_stdout(RS232_PORT_0);
+
+  rs232_set_input(RS232_PORT_0, serial_line_input_byte);
 }
 
 int
@@ -109,6 +111,7 @@ main(void)
   //init_net();
 
   PORTB &= ~(1<<5);
+  serial_line_init();
 
   printf_P(PSTR("\r\n********BOOTING CONTIKI*********\r\n"));
 
