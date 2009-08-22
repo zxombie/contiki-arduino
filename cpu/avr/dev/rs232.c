@@ -80,7 +80,7 @@ static rs232_t rs232_ports[2] = {
     NULL
   }
 };
-#elif defined (__AVR_ATmega328P__)
+#elif defined (__AVR_ATmega328P__) || defined (__AVR_ATmega168__)
 static rs232_t rs232_ports[1] = {
   {   // UART0
     &UDR0,
